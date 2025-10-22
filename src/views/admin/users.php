@@ -439,21 +439,21 @@ ob_start();
     function closeDeclineUserModal() {
         document.getElementById('declineUserModal').classList.add('hidden');
         document.body.style.overflow = 'auto';
-        currentUserId = null;
+        currentUserId = null; // Reset after closing
     }
 
     function openAcceptModal(userId, userName) {
-        currentUserId = userId;
+        currentUserId = userId; // Set it here explicitly
         const userRow = document.querySelector(`.user-row[data-user-id="${userId}"]`);
         const cells = userRow.getElementsByTagName('td');
         const userDetails = `
-        <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent}</p>
-        <p class="text-sm text-gray-500">Email: ${cells[1].textContent}</p>
-        <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent}</p>
-        <p class="text-sm text-gray-500">Role: ${cells[2].textContent}</p>
-        <p class="text-sm text-gray-500">College: ${cells[3].textContent}</p>
-        <p class="text-sm text-gray-500">Department: ${cells[4].textContent}</p>
-    `;
+            <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent}</p>
+            <p class="text-sm text-gray-500">Email: ${cells[1].textContent}</p>
+            <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent}</p>
+            <p class="text-sm text-gray-500">Role: ${cells[2].textContent}</p>
+            <p class="text-sm text-gray-500">College: ${cells[3].textContent}</p>
+            <p class="text-sm text-gray-500">Department: ${cells[4].textContent}</p>
+        `;
         document.getElementById('acceptUserDetails').innerHTML = userDetails;
         document.getElementById('acceptUserModal').classList.remove('hidden');
         document.body.style.overflow = 'hidden';
@@ -462,11 +462,14 @@ ob_start();
     function closeAcceptUserModal() {
         document.getElementById('acceptUserModal').classList.add('hidden');
         document.body.style.overflow = 'auto';
-        currentUserId = null;
+        currentUserId = null; // Reset after closing
     }
 
     function confirmAcceptUser() {
         if (currentUserId) {
+            console.log('Accepting user_id:', currentUserId);
+            console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
+
             fetch(`/admin/users`, {
                     method: 'POST',
                     headers: {
@@ -479,8 +482,15 @@ ob_start();
                         user_id: currentUserId
                     })
                 })
-                .then(response => response.json())
+                .then(response => {
+                    console.log('Response status:', response.status, response.statusText);
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok ' + response.statusText);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Response data:', data);
                     if (data.success) {
                         closeAcceptUserModal();
                         location.reload();
@@ -490,24 +500,26 @@ ob_start();
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    alert('An error occurred while accepting the user');
+                    alert('An error occurred while accepting the user: ' + error.message);
                 });
         }
     }
 
+
+
     function openRejectModal(userId, userName) {
-        currentUserId = userId;
+        currentUserId = userId; // Set it here explicitly
         const userRow = document.querySelector(`.user-row[data-user-id="${userId}"]`);
         const cells = userRow.getElementsByTagName('td');
         const userDetails = `
-        <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent}</p>
-        <p class="text-sm text-gray-500">Email: ${cells[1].textContent}</p>
-        <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent}</p>
-        <p class="text-sm text-gray-500">Role: ${cells[2].textContent}</p>
-        <p class="text-sm text-gray-500">College: ${cells[3].textContent}</p>
-        <p class="text-sm text-gray-500">Department: ${cells[4].textContent}</p>
-        <textarea id="rejectReason" class="mt-2 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Enter rejection reason" rows="3" required></textarea>
-    `;
+            <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent}</p>
+            <p class="text-sm text-gray-500">Email: ${cells[1].textContent}</p>
+            <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent}</p>
+            <p class="text-sm text-gray-500">Role: ${cells[2].textContent}</p>
+            <p class="text-sm text-gray-500">College: ${cells[3].textContent}</p>
+            <p class="text-sm text-gray-500">Department: ${cells[4].textContent}</p>
+            <textarea id="rejectReason" class="mt-2 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Enter rejection reason" rows="3" required></textarea>
+        `;
         document.getElementById('rejectUserDetails').innerHTML = userDetails;
         document.getElementById('declineUserModal').classList.remove('hidden');
         document.body.style.overflow = 'hidden';
@@ -516,6 +528,9 @@ ob_start();
     function confirmRejectUser() {
         if (currentUserId) {
             const reason = document.getElementById('rejectReason').value;
+            console.log('Rejecting user_id:', currentUserId, 'Reason:', reason);
+            console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
+
             fetch(`/admin/users`, {
                     method: 'POST',
                     headers: {
@@ -529,8 +544,15 @@ ob_start();
                         reason: reason
                     })
                 })
-                .then(response => response.json())
+                .then(response => {
+                    console.log('Response status:', response.status, response.statusText);
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok ' + response.statusText);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Response data:', data);
                     if (data.success) {
                         closeDeclineUserModal();
                         location.reload();
@@ -540,10 +562,11 @@ ob_start();
                 })
                 .catch(error => {
                     console.error('Error:', error);
-                    alert('An error occurred while rejecting the user');
+                    alert('An error occurred while rejecting the user: ' + error.message);
                 });
         }
     }
+
 
     function confirmDeclineUser() {
         if (currentUserId) {
@@ -621,6 +644,7 @@ ob_start();
                 });
         }
     }
+
 
     function closeDisableUserModal() {
         document.getElementById('disableUserModal').classList.add('hidden');
@@ -861,11 +885,11 @@ ob_start();
             });
         });
     });
-    error_log("Received input: ".print_r($input, true));
 </script>
 </div>
 
 <?php
+
 $content = ob_get_clean();
 require_once __DIR__ . '/layout.php';
 ?>

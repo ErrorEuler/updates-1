@@ -282,7 +282,6 @@ class AdminController
     public function manageUsers()
     {
         try {
-            // Get VPAA's college_id via departments or faculty
             $vpaaStmt = $this->db->prepare("
             SELECT c.college_id
             FROM vpaa v
@@ -306,14 +305,8 @@ class AdminController
                 exit;
             }
 
-            $action = $_GET['action'] ?? 'list';
-            $userId = $_GET['user_id'] ?? null;
-            $csrfToken = $this->authService->generateCsrfToken();
-
-
-            // Fetch users using UserModel
             $userModel = new UserModel();
-            $users = $userModel->getUsersByCollege($vpaaCollegeId); // Pass the correct college ID
+            $users = $userModel->getUsersByCollege($vpaaCollegeId);
             $roles = $this->db->query("SELECT role_id, role_name FROM roles ORDER BY role_name")->fetchAll(PDO::FETCH_ASSOC);
             $colleges = $this->db->prepare("SELECT college_id, college_name FROM colleges WHERE college_id = :college_id ORDER BY college_name");
             $colleges->execute([':college_id' => $vpaaCollegeId]);
@@ -321,62 +314,24 @@ class AdminController
             $departments = $this->db->prepare("SELECT department_id, department_name FROM departments WHERE college_id = :college_id ORDER BY department_name");
             $departments->execute([':college_id' => $vpaaCollegeId]);
             $departments = $departments->fetchAll(PDO::FETCH_ASSOC);
+            $csrfToken = $this->authService->generateCsrfToken();
 
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
                 if (!$this->authService->verifyCsrfToken($csrfToken)) {
-                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'Invalid CSRF token'];
-                    header('Content-Type: application/json');
+                    error_log("CSRF token verification failed for user_id: " . ($_SESSION['user_id'] ?? 'unknown'));
                     echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
                     exit;
                 }
-                $this->db->beginTransaction();
-                try {
-                    // Parse JSON body
-                    $input = json_decode(file_get_contents('php://input'), true);
-                    $data = [
-                        'user_id' => $input['user_id'] ?? null,
-                        'action' => $input['action'] ?? null,
-                        'reason' => $input['reason'] ?? null
-                    ];
-                    $result = $this->handleUserAction($data);
-                    $this->db->commit();
-                    $_SESSION['flash'] = ['type' => $result['success'] ? 'success' : 'error', 'message' => $result['message'] ?? $result['error']];
-                    header('Content-Type: application/json');
-                    echo json_encode($result);
-                    exit;
-                } catch (PDOException $e) {
-                    $this->db->rollBack();
-                    error_log("User action error (" . ($data['action'] ?? 'unknown') . "): " . $e->getMessage());
-                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to process user action'];
-                    header('Content-Type: application/json');
-                    echo json_encode(['success' => false, 'message' => 'Database error occurred']);
-                    exit;
-                }
-            }
-
-            $userDetails = null;
-            if (in_array($action, ['view', 'edit']) && $userId) {
-                $stmt = $this->db->prepare("
-                SELECT u.*, r.role_name, c.college_name, d.department_name
-                FROM users u
-                JOIN roles r ON u.role_id = r.role_id
-                LEFT JOIN colleges c ON u.college_id = c.college_id
-                LEFT JOIN departments d ON u.department_id = d.department_id
-                WHERE u.user_id = :user_id
-            ");
-                $stmt->execute([':user_id' => $userId]);
-                $userDetails = $stmt->fetch(PDO::FETCH_ASSOC);
-                if (!$userDetails) {
-                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'User not found'];
-                    header('Location: /admin/users');
-                    exit;
-                }
-                if ($action === 'view') {
-                    header('Content-Type: application/json');
-                    echo json_encode(['success' => true, 'user' => $userDetails]);
-                    exit;
-                }
+                $input = json_decode(file_get_contents('php://input'), true);
+                $data = [
+                    'user_id' => $input['user_id'] ?? null,
+                    'action' => $input['action'] ?? null,
+                    'reason' => $input['reason'] ?? null
+                ];
+                $result = $this->handleUserAction($data);
+                echo json_encode($result);
+                exit;
             }
 
             $controller = $this;
@@ -384,35 +339,44 @@ class AdminController
         } catch (PDOException $e) {
             error_log("Manage users error: " . $e->getMessage());
             http_response_code(500);
-            echo "Server error: " . htmlspecialchars($e->getMessage()); // Better error display
+            echo "Server error: " . htmlspecialchars($e->getMessage());
         }
     }
 
     private function handleUserAction($data)
     {
+        error_log("handleUserAction: Received action: " . ($data['action'] ?? 'none') . ", user_id: " . ($data['user_id'] ?? 'none'));
+
         $userId = filter_var($data['user_id'], FILTER_VALIDATE_INT);
         $action = $data['action'];
+
         if (!$userId) {
             error_log("handleUserAction: Invalid user_id=$userId");
             return ['success' => false, 'error' => 'Invalid user ID'];
         }
+
         $stmt = $this->db->prepare("
         SELECT college_id, department_id, email, first_name, last_name, role_id
         FROM users
         WHERE user_id = :user_id
     ");
+
         error_log("Executing query for action $action on user_id $userId");
         $stmt->execute([':user_id' => $userId]);
         error_log("Query executed successfully for user_id $userId");
+
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
             error_log("handleUserAction: No user found for user_id=$userId");
             return ['success' => false, 'error' => 'User not found'];
         }
+
         $collegeId = $user['college_id'] ?: null;
         $departmentId = $user['department_id'] ?: null;
+
         try {
             $this->db->beginTransaction();
+
             if ($action === 'deactivate') {
                 $query = "UPDATE users SET is_active = -1 WHERE user_id = :user_id";
                 $stmt = $this->db->prepare($query);
@@ -420,6 +384,7 @@ class AdminController
                 $stmt->execute([':user_id' => $userId]);
                 error_log("Query executed successfully for user_id $userId");
                 error_log("handleUserAction: Deactivated user_id=$userId");
+
                 $roleStmt = $this->db->prepare("SELECT role_name FROM roles WHERE role_id = :role_id");
                 $roleStmt->execute([':role_id' => $user['role_id']]);
                 $role = $roleStmt->fetchColumn() ?: 'Unknown Role';
@@ -430,9 +395,15 @@ class AdminController
                 $stmt = $this->db->prepare($query);
                 $stmt->execute([':user_id' => $userId]);
                 error_log("handleUserAction: Activated user_id=$userId");
+
+                // Add debugging for row count
+                $rowsAffected = $stmt->rowCount();
+                error_log("handleUserAction: Update executed for action $action on user_id $userId, rows affected: " . $rowsAffected);
+
                 $roleStmt = $this->db->prepare("SELECT role_name FROM roles WHERE role_id = :role_id");
                 $roleStmt->execute([':role_id' => $user['role_id']]);
                 $role = $roleStmt->fetchColumn();
+
                 if ($user['email'] && $role) {
                     $this->emailService->sendApprovalEmail(
                         $user['email'],
@@ -455,7 +426,13 @@ class AdminController
                 $reason = $data['reason'] ?? 'No reason provided';
                 $stmt = $this->db->prepare($query);
                 $stmt->execute([':user_id' => $userId, ':reason' => $reason]);
+
+                // Add debugging for row count
+                $rowsAffected = $stmt->rowCount();
+                error_log("handleUserAction: Update executed for action $action on user_id $userId, rows affected: " . $rowsAffected);
+
                 error_log("handleUserAction: Rejected user_id=$userId with reason: $reason");
+
                 $roleStmt = $this->db->prepare("SELECT role_name FROM roles WHERE role_id = :role_id");
                 $roleStmt->execute([':role_id' => $user['role_id']]);
                 $role = $roleStmt->fetchColumn() ?: 'Unknown Role';
@@ -464,6 +441,7 @@ class AdminController
             } else {
                 throw new Exception("Invalid action: $action");
             }
+
             $this->db->commit();
             return ['success' => true, 'message' => $message];
         } catch (Exception $e) {

@@ -42,6 +42,7 @@ function handleAdminRoutes($path)
             $controller->mySchedule();
             break;
         case '/admin/users':
+        
         case '/admin/edit_user':
             error_log("Routing to AdminController::users");
             if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -159,7 +160,6 @@ function handleDirectorRoutes($path)
             echo "Page not found";
             exit;
     }
-   
 }
 
 function handleDeanRoutes($path)
@@ -185,7 +185,7 @@ function handleDeanRoutes($path)
             $controller->manageSchedule();
             break;
         case '/dean/activities':
-            $controller->activities();  
+            $controller->activities();
             break;
         case '/dean/classroom':
             $controller->classroom();
