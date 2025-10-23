@@ -465,45 +465,7 @@ ob_start();
         currentUserId = null; // Reset after closing
     }
 
-    function confirmAcceptUser() {
-        if (currentUserId) {
-            console.log('Accepting user_id:', currentUserId);
-            console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
 
-            fetch(`/admin/users`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'X-CSRF-Token': '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>'
-                    },
-                    body: JSON.stringify({
-                        action: 'approve',
-                        user_id: currentUserId
-                    })
-                })
-                .then(response => {
-                    console.log('Response status:', response.status, response.statusText);
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok ' + response.statusText);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Response data:', data);
-                    if (data.success) {
-                        closeAcceptUserModal();
-                        location.reload();
-                    } else {
-                        alert('Failed to accept user: ' + (data.message || 'Unknown error'));
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('An error occurred while accepting the user: ' + error.message);
-                });
-        }
-    }
 
 
 
@@ -525,45 +487,102 @@ ob_start();
         document.body.style.overflow = 'hidden';
     }
 
-    function confirmRejectUser() {
-        if (currentUserId) {
-            const reason = document.getElementById('rejectReason').value;
-            console.log('Rejecting user_id:', currentUserId, 'Reason:', reason);
-            console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
 
-            fetch(`/admin/users`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'X-CSRF-Token': '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>'
-                    },
-                    body: JSON.stringify({
-                        action: 'reject',
-                        user_id: currentUserId,
-                        reason: reason
-                    })
+    async function confirmAcceptUser() {
+        if (!currentUserId) {
+            console.error('confirmAcceptUser: No user ID set');
+            alert('Error: No user selected');
+            return;
+        }
+
+        console.log('Accepting user_id:', currentUserId);
+        console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
+        console.log('Sending POST request to /admin/users with action: approve');
+
+        try {
+            const response = await fetch(`/admin/users`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-Token': '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>'
+                },
+                body: JSON.stringify({
+                    action: 'approve',
+                    user_id: currentUserId
                 })
-                .then(response => {
-                    console.log('Response status:', response.status, response.statusText);
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok ' + response.statusText);
-                    }
-                    return response.json();
+            });
+
+            console.log('Response status:', response.status, response.statusText);
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Server returned error:', text);
+                throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Response data:', data);
+
+            if (data.success) {
+                closeAcceptUserModal();
+                location.reload();
+            } else {
+                alert('Failed to accept user: ' + (data.error || data.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('confirmAcceptUser error:', error);
+            alert('An error occurred while accepting the user: ' + error.message);
+        }
+    }
+
+    async function confirmRejectUser() {
+        if (!currentUserId) {
+            console.error('confirmRejectUser: No user ID set');
+            alert('Error: No user selected');
+            return;
+        }
+
+        const reason = document.getElementById('rejectReason').value;
+        console.log('Rejecting user_id:', currentUserId, 'Reason:', reason);
+        console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
+        console.log('Sending POST request to /admin/users with action: reject');
+
+        try {
+            const response = await fetch(`/admin/users`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-Token': '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>'
+                },
+                body: JSON.stringify({
+                    action: 'reject',
+                    user_id: currentUserId,
+                    reason: reason
                 })
-                .then(data => {
-                    console.log('Response data:', data);
-                    if (data.success) {
-                        closeDeclineUserModal();
-                        location.reload();
-                    } else {
-                        alert('Failed to reject user: ' + (data.message || 'Unknown error'));
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('An error occurred while rejecting the user: ' + error.message);
-                });
+            });
+
+            console.log('Response status:', response.status, response.statusText);
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Server returned error:', text);
+                throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
+            }
+
+            const data = await response.json();
+            console.log('Response data:', data);
+
+            if (data.success) {
+                closeDeclineUserModal();
+                location.reload();
+            } else {
+                alert('Failed to reject user: ' + (data.error || data.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('confirmRejectUser error:', error);
+            alert('An error occurred while rejecting the user: ' + error.message);
         }
     }
 
@@ -884,6 +903,38 @@ ob_start();
                 }
             });
         });
+    });
+
+    function debugUserData() {
+        console.log('=== DEBUG USER DATA ===');
+        const rows = document.querySelectorAll('.user-row');
+        rows.forEach(row => {
+            const userId = row.getAttribute('data-user-id');
+            const cells = row.getElementsByTagName('td');
+            console.log(`User ID: ${userId}, Name: ${cells[0].textContent}, Status: ${cells[5].textContent}`);
+        });
+        console.log('=== END DEBUG ===');
+    }
+
+    // Call this in your DOMContentLoaded event to verify data
+    document.addEventListener('DOMContentLoaded', () => {
+        debugUserData();
+
+        const rows = document.querySelectorAll('.user-row');
+        rows.forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (!e.target.closest('button')) {
+                    showUserDetails(row);
+                }
+            });
+        });
+
+        const defaultTab = '<?php echo isset($_GET['tab']) ? htmlspecialchars($_GET['tab'], ENT_QUOTES, 'UTF-8') : 'all'; ?>';
+        if (['all', 'active', 'inactive', 'pending'].includes(defaultTab)) {
+            switchTab(defaultTab);
+        } else {
+            switchTab('all');
+        }
     });
 </script>
 </div>

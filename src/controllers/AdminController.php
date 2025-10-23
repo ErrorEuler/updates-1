@@ -282,6 +282,43 @@ class AdminController
     public function manageUsers()
     {
         try {
+            // Handle POST requests first (AJAX actions)
+            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                error_log("manageUsers: POST request received");
+
+                $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+                error_log("manageUsers: Received CSRF token: " . $csrfToken);
+                error_log("manageUsers: Session CSRF token: " . ($_SESSION['csrf_token'] ?? 'none'));
+
+                if (!$this->authService->verifyCsrfToken($csrfToken)) {
+                    error_log("CSRF token verification failed for user_id: " . ($_SESSION['user_id'] ?? 'unknown'));
+                    echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+                    exit;
+                }
+
+                error_log("manageUsers: CSRF token verified successfully");
+
+                $input = json_decode(file_get_contents('php://input'), true);
+                error_log("manageUsers: Received input: " . print_r($input, true));
+
+                $data = [
+                    'user_id' => $input['user_id'] ?? null,
+                    'action' => $input['action'] ?? null,
+                    'reason' => $input['reason'] ?? null
+                ];
+
+                $result = $this->handleUserAction($data);
+                echo json_encode($result);
+                exit;
+            }
+
+            // Handle GET requests (page display)
+            error_log("manageUsers: GET request - loading users page");
+
+            // Generate CSRF token for the form
+            $csrfToken = $this->authService->generateCsrfToken();
+            error_log("manageUsers: Generated new CSRF token for GET request: " . $csrfToken);
+
             $vpaaStmt = $this->db->prepare("
             SELECT c.college_id
             FROM vpaa v
@@ -292,11 +329,13 @@ class AdminController
         ");
             $vpaaStmt->execute([':user_id' => $_SESSION['user_id']]);
             $vpaa = $vpaaStmt->fetch(PDO::FETCH_ASSOC);
+
             if (!$vpaa) {
                 $_SESSION['flash'] = ['type' => 'error', 'message' => 'VPAA profile or college association not found'];
                 header('Location: /admin/dashboard');
                 exit;
             }
+
             $vpaaCollegeId = $vpaa['college_id'];
 
             if (!$this->authService->isLoggedIn() || $_SESSION['role_id'] !== 1) {
@@ -314,25 +353,6 @@ class AdminController
             $departments = $this->db->prepare("SELECT department_id, department_name FROM departments WHERE college_id = :college_id ORDER BY department_name");
             $departments->execute([':college_id' => $vpaaCollegeId]);
             $departments = $departments->fetchAll(PDO::FETCH_ASSOC);
-            $csrfToken = $this->authService->generateCsrfToken();
-
-            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-                $csrfToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-                if (!$this->authService->verifyCsrfToken($csrfToken)) {
-                    error_log("CSRF token verification failed for user_id: " . ($_SESSION['user_id'] ?? 'unknown'));
-                    echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
-                    exit;
-                }
-                $input = json_decode(file_get_contents('php://input'), true);
-                $data = [
-                    'user_id' => $input['user_id'] ?? null,
-                    'action' => $input['action'] ?? null,
-                    'reason' => $input['reason'] ?? null
-                ];
-                $result = $this->handleUserAction($data);
-                echo json_encode($result);
-                exit;
-            }
 
             $controller = $this;
             require_once __DIR__ . '/../views/admin/users.php';
@@ -354,6 +374,10 @@ class AdminController
             error_log("handleUserAction: Invalid user_id=$userId");
             return ['success' => false, 'error' => 'Invalid user ID'];
         }
+
+        // Add this debug line to verify we're reaching the method
+        error_log("handleUserAction: CSRF verified, proceeding with action: $action for user_id: $userId");
+
 
         $stmt = $this->db->prepare("
         SELECT college_id, department_id, email, first_name, last_name, role_id
