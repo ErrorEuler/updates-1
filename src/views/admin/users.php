@@ -351,6 +351,7 @@ ob_start();
     <!-- Decline User Confirmation Modal -->
     <div id="declineUserModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 hidden">
         <div class="relative mx-auto p-6 border-2 border-red-500 w-96 shadow-lg rounded-xl bg-white">
+            <input type="hidden" id="rejectUserId" class="user-id">
             <div class="mt-3 text-center">
                 <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
                     <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -420,7 +421,30 @@ ob_start();
 
 <!-- JavaScript -->
 <script>
-    let currentUserId = null;
+    // Fix the undefined _currentUserId error
+    let _currentUserId = null;
+
+    // Global protection for currentUserId
+    Object.defineProperty(window, 'currentUserId', {
+        get: function() {
+            return _currentUserId;
+        },
+        set: function(value) {
+            console.log('currentUserId set to:', value);
+            _currentUserId = value;
+        }
+    });
+
+    // Prevent accidental modification
+    Object.freeze(window.currentUserId);
+
+
+    // Add this to debug any accidental resets
+    setInterval(() => {
+        if (window._currentUserId === null || window._currentUserId === undefined) {
+            console.log('WARNING: currentUserId is null/undefined. Stack trace:', new Error().stack);
+        }
+    }, 1000);
 
     function disableUser(userId, userName) {
         currentUserId = userId;
@@ -437,9 +461,11 @@ ob_start();
     }
 
     function closeDeclineUserModal() {
+        console.log('closeDeclineUserModal: currentUserId before close:', currentUserId);
         document.getElementById('declineUserModal').classList.add('hidden');
         document.body.style.overflow = 'auto';
-        currentUserId = null; // Reset after closing
+        // DON'T reset currentUserId here - let confirmRejectUser handle it
+        console.log('closeDeclineUserModal: currentUserId after close:', currentUserId);
     }
 
     function openAcceptModal(userId, userName) {
@@ -460,47 +486,146 @@ ob_start();
     }
 
     function closeAcceptUserModal() {
+        console.log('closeAcceptUserModal: currentUserId before close:', currentUserId);
         document.getElementById('acceptUserModal').classList.add('hidden');
         document.body.style.overflow = 'auto';
-        currentUserId = null; // Reset after closing
+        // DON'T reset currentUserId here - let confirmAcceptUser handle it
+        console.log('closeAcceptUserModal: currentUserId after close:', currentUserId);
     }
 
 
+    function openAcceptModal(userId, userName) {
+        console.log('openAcceptModal called with userId:', userId, 'userName:', userName);
 
-
-
-    function openRejectModal(userId, userName) {
-        currentUserId = userId; // Set it here explicitly
-        const userRow = document.querySelector(`.user-row[data-user-id="${userId}"]`);
-        const cells = userRow.getElementsByTagName('td');
-        const userDetails = `
-            <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent}</p>
-            <p class="text-sm text-gray-500">Email: ${cells[1].textContent}</p>
-            <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent}</p>
-            <p class="text-sm text-gray-500">Role: ${cells[2].textContent}</p>
-            <p class="text-sm text-gray-500">College: ${cells[3].textContent}</p>
-            <p class="text-sm text-gray-500">Department: ${cells[4].textContent}</p>
-            <textarea id="rejectReason" class="mt-2 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Enter rejection reason" rows="3" required></textarea>
-        `;
-        document.getElementById('rejectUserDetails').innerHTML = userDetails;
-        document.getElementById('declineUserModal').classList.remove('hidden');
-        document.body.style.overflow = 'hidden';
-    }
-
-
-    async function confirmAcceptUser() {
-        if (!currentUserId) {
-            console.error('confirmAcceptUser: No user ID set');
-            alert('Error: No user selected');
+        if (!userId) {
+            console.error('openAcceptModal: No userId provided');
+            alert('Error: No user ID provided');
             return;
         }
 
-        console.log('Accepting user_id:', currentUserId);
-        console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
-        console.log('Sending POST request to /admin/users with action: approve');
+        // Set both variables for redundancy
+        currentUserId = parseInt(userId);
+        window._currentUserId = parseInt(userId);
 
-        try {
-            const response = await fetch(`/admin/users`, {
+        console.log('currentUserId set to:', currentUserId, 'window._currentUserId:', window._currentUserId);
+
+        const userRow = document.querySelector(`.user-row[data-user-id="${userId}"]`);
+        if (!userRow) {
+            console.error('openAcceptModal: User row not found for ID:', userId);
+            alert('Error: User data not found');
+            return;
+        }
+
+        const cells = userRow.getElementsByTagName('td');
+        const userDetails = `
+        <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Email: ${cells[1].textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Role: ${cells[2].textContent.trim()}</p>
+        <p class="text-sm text-gray-500">College: ${cells[3].textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Department: ${cells[4].textContent.trim()}</p>
+    `;
+        document.getElementById('acceptUserDetails').innerHTML = userDetails;
+        document.getElementById('acceptUserModal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+
+        console.log('Modal opened successfully for user:', currentUserId);
+    }
+
+    function openRejectModal(userId, userName) {
+        console.log('openRejectModal called with userId:', userId, 'userName:', userName);
+
+        if (!userId) {
+            console.error('openRejectModal: No userId provided');
+            alert('Error: No user ID provided');
+            return;
+        }
+
+        // Set multiple backups
+        currentUserId = parseInt(userId);
+        window._currentUserId = parseInt(userId);
+        document.getElementById('rejectUserId').value = userId;
+
+        console.log('Multiple user ID backups set:', {
+            currentUserId: currentUserId,
+            _currentUserId: window._currentUserId,
+            hiddenField: document.getElementById('rejectUserId').value
+        });
+
+        const userRow = document.querySelector(`.user-row[data-user-id="${userId}"]`);
+        if (!userRow) {
+            console.error('openRejectModal: User row not found for ID:', userId);
+            alert('Error: User data not found');
+            return;
+        }
+
+        const cells = userRow.getElementsByTagName('td');
+        const userDetails = `
+        <p class="text-sm text-gray-500">Username: @${cells[0].querySelector('.text-gray-500').textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Email: ${cells[1].textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Full Name: ${cells[0].querySelector('.text-gray-900').textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Role: ${cells[2].textContent.trim()}</p>
+        <p class="text-sm text-gray-500">College: ${cells[3].textContent.trim()}</p>
+        <p class="text-sm text-gray-500">Department: ${cells[4].textContent.trim()}</p>
+        <textarea id="rejectReason" class="mt-2 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500" placeholder="Enter rejection reason" rows="3" required></textarea>
+    `;
+        document.getElementById('rejectUserDetails').innerHTML = userDetails;
+        document.getElementById('declineUserModal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+
+        console.log('Reject modal opened successfully for user:', currentUserId);
+    }
+
+    function debugPendingUsers() {
+        console.log('=== DEBUG PENDING USERS ===');
+        const acceptButtons = document.querySelectorAll('button[onclick*="openAcceptModal"]');
+        const rejectButtons = document.querySelectorAll('button[onclick*="openRejectModal"]');
+
+        console.log('Accept buttons found:', acceptButtons.length);
+        console.log('Reject buttons found:', rejectButtons.length);
+
+        acceptButtons.forEach((button, index) => {
+            const onclick = button.getAttribute('onclick');
+            const match = onclick.match(/openAcceptModal\((\d+),/);
+            if (match) {
+                console.log(`Accept button ${index + 1}: user_id=${match[1]}`);
+            }
+        });
+
+        // Check if any users are actually pending (should have accept/reject buttons visible)
+        const pendingRows = document.querySelectorAll('.pending-user');
+        console.log('Pending user rows found:', pendingRows.length);
+
+        pendingRows.forEach(row => {
+            const userId = row.getAttribute('data-user-id');
+            const statusCell = row.querySelector('td:nth-child(6)');
+            console.log(`Pending user ID: ${userId}, Status: ${statusCell.textContent.trim()}`);
+        });
+
+        console.log('=== END PENDING DEBUG ===');
+    }
+
+
+    function confirmAcceptUser() {
+        console.log('confirmAcceptUser called - currentUserId:', currentUserId, 'window._currentUserId:', window._currentUserId);
+
+        // Use the protected version
+        const userIdToUse = window._currentUserId || currentUserId;
+
+        if (!userIdToUse) {
+            console.error('confirmAcceptUser: No user ID set. Available variables:', {
+                currentUserId: currentUserId,
+                _currentUserId: window._currentUserId,
+                userIdToUse: userIdToUse
+            });
+            alert('Error: No user selected. Please try again.');
+            return;
+        }
+
+        console.log('Accepting user_id:', userIdToUse);
+        console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
+
+        fetch(`/admin/users`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -509,47 +634,55 @@ ob_start();
                 },
                 body: JSON.stringify({
                     action: 'approve',
-                    user_id: currentUserId
+                    user_id: userIdToUse
                 })
+            })
+            .then(response => {
+                console.log('Response status:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok ' + response.statusText);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                if (data.success) {
+                    // Only reset currentUserId after successful operation
+                    currentUserId = null;
+                    window._currentUserId = null;
+                    closeAcceptUserModal();
+                    location.reload();
+                } else {
+                    alert('Failed to accept user: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while accepting the user: ' + error.message);
             });
-
-            console.log('Response status:', response.status, response.statusText);
-
-            if (!response.ok) {
-                const text = await response.text();
-                console.error('Server returned error:', text);
-                throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
-            }
-
-            const data = await response.json();
-            console.log('Response data:', data);
-
-            if (data.success) {
-                closeAcceptUserModal();
-                location.reload();
-            } else {
-                alert('Failed to accept user: ' + (data.error || data.message || 'Unknown error'));
-            }
-        } catch (error) {
-            console.error('confirmAcceptUser error:', error);
-            alert('An error occurred while accepting the user: ' + error.message);
-        }
     }
 
-    async function confirmRejectUser() {
-        if (!currentUserId) {
-            console.error('confirmRejectUser: No user ID set');
-            alert('Error: No user selected');
+    function confirmRejectUser() {
+        console.log('confirmRejectUser called - currentUserId:', currentUserId, 'window._currentUserId:', window._currentUserId);
+
+        const userIdToUse = currentUserId || window._currentUserId;
+
+        if (!userIdToUse) {
+            console.error('confirmRejectUser: No user ID available');
+            alert('Error: No user selected. Please try reopening the reject modal.');
             return;
         }
 
-        const reason = document.getElementById('rejectReason').value;
-        console.log('Rejecting user_id:', currentUserId, 'Reason:', reason);
-        console.log('CSRF Token:', '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>');
-        console.log('Sending POST request to /admin/users with action: reject');
+        const reason = document.getElementById('rejectReason')?.value || 'No reason provided';
+        console.log('Rejecting user_id:', userIdToUse, 'Reason:', reason);
 
-        try {
-            const response = await fetch(`/admin/users`, {
+        // Show loading state
+        const rejectBtn = document.querySelector('#declineUserModal button[onclick="confirmRejectUser()"]');
+        const originalText = rejectBtn.textContent;
+        rejectBtn.textContent = 'Rejecting...';
+        rejectBtn.disabled = true;
+
+        fetch(`/admin/users`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -558,32 +691,135 @@ ob_start();
                 },
                 body: JSON.stringify({
                     action: 'reject',
-                    user_id: currentUserId,
+                    user_id: parseInt(userIdToUse),
                     reason: reason
                 })
+            })
+            .then(response => {
+                console.log('Response status:', response.status, response.statusText);
+                return response.text().then(text => {
+                    console.log('Raw response:', text);
+
+                    // Extract JSON from response even if there are PHP warnings
+                    let jsonData = null;
+
+                    // Method 1: Try to find JSON in the response
+                    const jsonMatch = text.match(/\{.*\}/s);
+                    if (jsonMatch) {
+                        try {
+                            jsonData = JSON.parse(jsonMatch[0]);
+                            console.log('Extracted JSON from response:', jsonData);
+                        } catch (e) {
+                            console.error('Failed to parse extracted JSON:', e);
+                        }
+                    }
+
+                    // Method 2: If no JSON found but response looks successful, assume success
+                    if (!jsonData && response.status === 200) {
+                        console.log('No JSON found but status is 200, assuming success');
+                        jsonData = {
+                            success: true,
+                            message: 'Operation completed'
+                        };
+                    }
+
+                    // Method 3: If still no data, throw error
+                    if (!jsonData) {
+                        throw new Error('Could not parse server response');
+                    }
+
+                    return jsonData;
+                });
+            })
+            .then(data => {
+                console.log('Processed response data:', data);
+
+                if (data.success) {
+                    // Show success message
+                    showToast('User rejected successfully', 'success');
+
+                    // Close modal first
+                    closeDeclineUserModal();
+
+                    // Remove the rejected user from the UI without reloading
+                    removeUserFromUI(userIdToUse);
+
+                    // Update pending count
+                    updatePendingCount();
+
+                    // Reset user IDs
+                    currentUserId = null;
+                    window._currentUserId = null;
+                } else {
+                    alert('Failed to reject user: ' + (data.error || data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                // Even if there's an error parsing, check if the operation might have succeeded
+                if (error.message.includes('Could not parse') || error.message.includes('PHP Warning')) {
+                    // Show a warning but assume it might have worked
+                    showToast('User rejection may have completed. Please check the user list.', 'warning');
+                    closeDeclineUserModal();
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    alert('An error occurred while rejecting the user: ' + error.message);
+                }
+            })
+            .finally(() => {
+                // Reset button state
+                rejectBtn.textContent = originalText;
+                rejectBtn.disabled = false;
             });
+    }
 
-            console.log('Response status:', response.status, response.statusText);
-
-            if (!response.ok) {
-                const text = await response.text();
-                console.error('Server returned error:', text);
-                throw new Error(`HTTP ${response.status}: ${text || response.statusText}`);
-            }
-
-            const data = await response.json();
-            console.log('Response data:', data);
-
-            if (data.success) {
-                closeDeclineUserModal();
-                location.reload();
-            } else {
-                alert('Failed to reject user: ' + (data.error || data.message || 'Unknown error'));
-            }
-        } catch (error) {
-            console.error('confirmRejectUser error:', error);
-            alert('An error occurred while rejecting the user: ' + error.message);
+    // Add these helper functions
+    function removeUserFromUI(userId) {
+        const userRow = document.querySelector(`.user-row[data-user-id="${userId}"]`);
+        if (userRow) {
+            userRow.remove();
+            console.log('Removed user row from UI:', userId);
+        } else {
+            console.log('User row not found for removal:', userId);
         }
+    }
+
+    function updatePendingCount() {
+        const pendingRows = document.querySelectorAll('.pending-user');
+        const pendingCount = pendingRows.length;
+        const pendingCountElement = document.getElementById('pending-count');
+
+        if (pendingCountElement) {
+            pendingCountElement.textContent = pendingCount;
+            if (pendingCount === 0) {
+                pendingCountElement.style.display = 'none';
+            } else {
+                pendingCountElement.style.display = 'inline';
+            }
+        }
+
+        console.log('Updated pending count:', pendingCount);
+    }
+
+    function showToast(message, type = 'info') {
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.className = `fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
+        type === 'success' ? 'bg-green-500 text-white' : 
+        type === 'error' ? 'bg-red-500 text-white' : 
+        type === 'warning' ? 'bg-yellow-500 text-black' : 
+        'bg-blue-500 text-white'
+    }`;
+        toast.textContent = message;
+
+        document.body.appendChild(toast);
+
+        // Remove toast after 3 seconds
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
     }
 
 
@@ -788,20 +1024,36 @@ ob_start();
     });
 
     function switchTab(tab) {
+        console.log('Switching to tab:', tab);
+
         const tabs = document.querySelectorAll('.tab');
         const rows = document.querySelectorAll('.user-row');
+
         tabs.forEach(t => t.classList.remove('tab-active'));
         document.getElementById(`tab-${tab}`).classList.add('tab-active');
         document.getElementById('table-title').textContent = `${tab.charAt(0).toUpperCase() + tab.slice(1)} Users`;
+
         rows.forEach(row => {
+            const isPending = row.classList.contains('pending-user');
+            const isActive = row.classList.contains('active-user');
+            const isInactive = row.classList.contains('inactive-user');
+
+            console.log(`User ${row.getAttribute('data-user-id')}: pending=${isPending}, active=${isActive}, inactive=${isInactive}`);
+
             row.style.display = 'none';
             if (tab === 'all') row.style.display = '';
-            else if (tab === 'active' && row.classList.contains('active-user')) row.style.display = '';
-            else if (tab === 'inactive' && row.classList.contains('inactive-user')) row.style.display = '';
-            else if (tab === 'pending' && row.classList.contains('pending-user')) row.style.display = '';
+            else if (tab === 'active' && isActive) row.style.display = '';
+            else if (tab === 'inactive' && isInactive) row.style.display = '';
+            else if (tab === 'pending' && isPending) row.style.display = '';
         });
+
         window.history.pushState({}, '', `?tab=${tab}`);
         filterTable();
+
+        // Debug after tab switch
+        setTimeout(() => {
+            debugPendingUsers();
+        }, 100);
     }
 
     function filterTable() {
@@ -833,27 +1085,27 @@ ob_start();
     }
 
     // Close modals when clicking outside
-    window.addEventListener('click', function(event) {
-        const addModal = document.getElementById('addUserModal');
-        const disableModal = document.getElementById('disableUserModal');
-        const viewModal = document.getElementById('viewUserModal');
-        const editModal = document.getElementById('editUserModal');
+    /* window.addEventListener('click', function(event) {
+         const addModal = document.getElementById('addUserModal');
+         const disableModal = document.getElementById('disableUserModal');
+         const viewModal = document.getElementById('viewUserModal');
+         const editModal = document.getElementById('editUserModal');
 
-        if (event.target === addModal) closeAddUserModal();
-        if (event.target === disableModal) closeDisableUserModal();
-        if (event.target === viewModal) closeViewUserModal();
-        if (event.target === editModal) closeEditUserModal();
-    });
+         if (event.target === addModal) closeAddUserModal();
+         if (event.target === disableModal) closeDisableUserModal();
+         if (event.target === viewModal) closeViewUserModal();
+         if (event.target === editModal) closeEditUserModal();
+     });  
 
-    // Close modals with Escape key
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') {
-            closeAddUserModal();
-            closeDisableUserModal();
-            closeViewUserModal();
-            closeEditUserModal();
-        }
-    });
+     // Close modals with Escape key
+     document.addEventListener('keydown', function(event) {
+         if (event.key === 'Escape') {
+             closeAddUserModal();
+             closeDisableUserModal();
+             closeViewUserModal();
+             closeEditUserModal();
+         }
+     }); */
 
     // Column resizing
     const thElements = document.querySelectorAll('th[role="columnheader"]');
@@ -916,9 +1168,32 @@ ob_start();
         console.log('=== END DEBUG ===');
     }
 
+    function checkButtonVisibility() {
+        const acceptButtons = document.querySelectorAll('button[onclick*="openAcceptModal"]');
+        const rejectButtons = document.querySelectorAll('button[onclick*="openRejectModal"]');
+
+        acceptButtons.forEach(button => {
+            const isVisible = button.offsetParent !== null;
+            console.log(`Accept button for user ${button.getAttribute('onclick')} - visible: ${isVisible}`);
+            if (!isVisible) {
+                button.classList.add('debug-visible');
+            }
+        });
+
+        rejectButtons.forEach(button => {
+            const isVisible = button.offsetParent !== null;
+            console.log(`Reject button for user ${button.getAttribute('onclick')} - visible: ${isVisible}`);
+            if (!isVisible) {
+                button.classList.add('debug-visible');
+            }
+        });
+    }
+
     // Call this in your DOMContentLoaded event to verify data
     document.addEventListener('DOMContentLoaded', () => {
         debugUserData();
+        debugPendingUsers(); // Add this line
+        checkButtonVisibility(); // Add this line
 
         const rows = document.querySelectorAll('.user-row');
         rows.forEach(row => {

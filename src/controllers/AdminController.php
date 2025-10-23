@@ -33,6 +33,27 @@ class AdminController
         }
     }
 
+    // Add this temporary method to AdminController to check the schema
+    public function checkDatabaseSchema()
+    {
+        try {
+            $stmt = $this->db->query("DESCRIBE users");
+            $columns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            error_log("Users table columns: " . implode(', ', $columns));
+
+            // Check if rejection_reason exists
+            if (in_array('rejection_reason', $columns)) {
+                error_log("rejection_reason column exists in users table");
+            } else {
+                error_log("rejection_reason column DOES NOT exist in users table");
+            }
+        } catch (Exception $e) {
+            error_log("Error checking database schema: " . $e->getMessage());
+        }
+    }
+
+    // Call this in your manageUsers method temporarily
+
     public function getUsersTableData()
     {
         try {
@@ -281,6 +302,8 @@ class AdminController
 
     public function manageUsers()
     {
+        // Temporary: Check database schema
+        $this->checkDatabaseSchema();
         try {
             // Handle POST requests first (AJAX actions)
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -365,40 +388,44 @@ class AdminController
 
     private function handleUserAction($data)
     {
-        error_log("handleUserAction: Received action: " . ($data['action'] ?? 'none') . ", user_id: " . ($data['user_id'] ?? 'none'));
-
-        $userId = filter_var($data['user_id'], FILTER_VALIDATE_INT);
-        $action = $data['action'];
-
-        if (!$userId) {
-            error_log("handleUserAction: Invalid user_id=$userId");
-            return ['success' => false, 'error' => 'Invalid user ID'];
-        }
-
-        // Add this debug line to verify we're reaching the method
-        error_log("handleUserAction: CSRF verified, proceeding with action: $action for user_id: $userId");
-
-
-        $stmt = $this->db->prepare("
-        SELECT college_id, department_id, email, first_name, last_name, role_id
-        FROM users
-        WHERE user_id = :user_id
-    ");
-
-        error_log("Executing query for action $action on user_id $userId");
-        $stmt->execute([':user_id' => $userId]);
-        error_log("Query executed successfully for user_id $userId");
-
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$user) {
-            error_log("handleUserAction: No user found for user_id=$userId");
-            return ['success' => false, 'error' => 'User not found'];
-        }
-
-        $collegeId = $user['college_id'] ?: null;
-        $departmentId = $user['department_id'] ?: null;
+        // Suppress PHP warnings for mail function
+        $originalErrorReporting = error_reporting();
+        error_reporting(E_ALL & ~E_WARNING);
+        error_log("handleUserAction: Starting with data: " . print_r($data, true));
 
         try {
+            $userId = filter_var($data['user_id'], FILTER_VALIDATE_INT);
+            $action = $data['action'];
+
+            if (!$userId) {
+                error_log("handleUserAction: Invalid user_id=$userId");
+                return ['success' => false, 'error' => 'Invalid user ID'];
+            }
+
+            // Add this debug line to verify we're reaching the method
+            error_log("handleUserAction: CSRF verified, proceeding with action: $action for user_id: $userId");
+
+            $stmt = $this->db->prepare("
+            SELECT college_id, department_id, email, first_name, last_name, role_id
+            FROM users
+            WHERE user_id = :user_id
+        ");
+
+            error_log("Executing query for action $action on user_id $userId");
+            $stmt->execute([':user_id' => $userId]);
+            error_log("Query executed successfully for user_id $userId");
+
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$user) {
+                error_log("handleUserAction: No user found for user_id=$userId");
+                return ['success' => false, 'error' => 'User not found'];
+            }
+
+            error_log("handleUserAction: User found: " . print_r($user, true));
+
+            $collegeId = $user['college_id'] ?: null;
+            $departmentId = $user['department_id'] ?: null;
+
             $this->db->beginTransaction();
 
             if ($action === 'deactivate') {
@@ -446,32 +473,73 @@ class AdminController
                 error_log("handleUserAction: Enabled user_id=$userId");
                 $message = 'User account enabled successfully';
             } elseif ($action === 'reject') {
-                $query = "UPDATE users SET is_active = -1, rejection_reason = :reason WHERE user_id = :user_id";
-                $reason = $data['reason'] ?? 'No reason provided';
-                $stmt = $this->db->prepare($query);
-                $stmt->execute([':user_id' => $userId, ':reason' => $reason]);
+                error_log("handleUserAction: Processing reject action for user_id: $userId");
+
+                // Check if rejection_reason column exists
+                try {
+                    $checkColumnStmt = $this->db->query("SHOW COLUMNS FROM users LIKE 'rejection_reason'");
+                    $columnExists = $checkColumnStmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($columnExists) {
+                        $query = "UPDATE users SET is_active = -1, rejection_reason = :reason WHERE user_id = :user_id";
+                        $reason = $data['reason'] ?? 'No reason provided';
+                        $stmt = $this->db->prepare($query);
+                        $stmt->execute([':user_id' => $userId, ':reason' => $reason]);
+                        error_log("handleUserAction: Updated with rejection_reason column");
+                    } else {
+                        $query = "UPDATE users SET is_active = -1 WHERE user_id = :user_id";
+                        $reason = $data['reason'] ?? 'No reason provided';
+                        $stmt = $this->db->prepare($query);
+                        $stmt->execute([':user_id' => $userId]);
+                        error_log("handleUserAction: Updated without rejection_reason column");
+                    }
+                } catch (Exception $columnError) {
+                    error_log("handleUserAction: Error checking column - " . $columnError->getMessage());
+                    // Fallback to simple update
+                    $query = "UPDATE users SET is_active = -1 WHERE user_id = :user_id";
+                    $stmt = $this->db->prepare($query);
+                    $stmt->execute([':user_id' => $userId]);
+                    error_log("handleUserAction: Used fallback update");
+                }
 
                 // Add debugging for row count
                 $rowsAffected = $stmt->rowCount();
                 error_log("handleUserAction: Update executed for action $action on user_id $userId, rows affected: " . $rowsAffected);
 
-                error_log("handleUserAction: Rejected user_id=$userId with reason: $reason");
+                error_log("handleUserAction: Rejected user_id=$userId with reason: " . ($data['reason'] ?? 'No reason provided'));
 
                 $roleStmt = $this->db->prepare("SELECT role_name FROM roles WHERE role_id = :role_id");
                 $roleStmt->execute([':role_id' => $user['role_id']]);
                 $role = $roleStmt->fetchColumn() ?: 'Unknown Role';
-                $this->emailService->sendDeclineEmail($user['email'], $user['first_name'] . ' ' . $user['last_name'], $role);
+
+                // Check if email service is available
+                if ($this->emailService && $user['email']) {
+                    try {
+                        $this->emailService->sendDeclineEmail($user['email'], $user['first_name'] . ' ' . $user['last_name'], $role);
+                        error_log("handleUserAction: Decline email sent to {$user['email']}");
+                    } catch (Exception $emailError) {
+                        error_log("handleUserAction: Email sending failed - " . $emailError->getMessage());
+                        // Continue even if email fails
+                    }
+                }
                 $message = 'User account rejected successfully';
             } else {
                 throw new Exception("Invalid action: $action");
             }
 
             $this->db->commit();
+            error_log("handleUserAction: Successfully completed action: $action for user: $userId");
             return ['success' => true, 'message' => $message];
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             error_log("handleUserAction: Error - " . $e->getMessage());
+            error_log("handleUserAction: Stack trace - " . $e->getTraceAsString());
             return ['success' => false, 'error' => 'An error occurred while processing the action: ' . $e->getMessage()];
+        } finally {
+            // Restore original error reporting
+            error_reporting($originalErrorReporting);
         }
     }
 

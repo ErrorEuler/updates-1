@@ -27,13 +27,38 @@ class EmailService
         $this->userModel = new UserModel();
     }
 
-    public function sendDeclineEmail($to, $fullName, $roleName)
+    /**
+     * Send decline email with graceful error handling
+     * @param string $to
+     * @param string $name
+     * @param string $role
+     * @return void
+     */
+    public function sendDeclineEmail($to, $name, $role)
     {
-        $subject = "Account Decline Notification";
-        $message = "Dear $fullName,\n\nYour request for the $roleName role has been declined. If you have any questions, please contact support.\n\nBest,\nACSS Team";
-        $headers = "From: no-reply@acss.com";
-        mail($to, $subject, $message, $headers);
-        error_log("Decline email sent to $to for $fullName ($roleName)");
+        try {
+            $subject = "Account Registration Declined";
+            $message = "Dear $name,\n\nYour account registration for role: $role has been declined.\n\nThank you.";
+
+            // Check if mail function is available
+            if (function_exists('mail')) {
+                $headers = "From: noreply@yourdomain.com\r\n";
+                $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
+
+                $result = @mail($to, $subject, $message, $headers);
+                if (!$result) {
+                    error_log("Email sending failed for: $to");
+                    // Don't throw error, just log it
+                } else {
+                    error_log("Decline email sent successfully to: $to for $name ($role)");
+                }
+            } else {
+                error_log("mail() function not available for: $to");
+            }
+        } catch (Exception $e) {
+            error_log("Email error in sendDeclineEmail: " . $e->getMessage());
+            // Don't re-throw, just log the error
+        }
     }
 
     /**
@@ -238,7 +263,7 @@ class EmailService
                             <a href='$resetLink' style='display: inline-block; background-color: #ed8936; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600; transition: background-color 0.3s;'>Reset Password</a>
                         </div>
                         <div style='background-color: #fefcbf; border-left: 4px solid #d69e2e; padding: 20px 25px; margin: 25px 0; border-radius: 8px;'>
-                            <p style='margin: 0; color: #744210; font-size: 14px;'>This link will expire in 24 hours. If you didn’t request a password reset, please ignore this email or contact support.</p>
+                            <p style='margin: 0; color: #744210; font-size: 14px;'>This link will expire in 24 hours. If you didn't request a password reset, please ignore this email or contact support.</p>
                         </div>
                         <div style='background-color: #fffaf0; border: 1px solid #fbd38d; border-radius: 8px; padding: 20px; margin: 25px 0; text-align: center;'>
                             <p style='margin: 0 0 10px 0; color: #744210; font-weight: 500;'>Need help?</p>
@@ -271,7 +296,7 @@ class EmailService
             We received a request to reset your password. Use the link below to create a new one:
             $resetLink
 
-            This link will expire in 24 hours. If you didn’t request this, please ignore this email or contact support at support@prmsu.edu.ph.
+            This link will expire in 24 hours. If you didn't request this, please ignore this email or contact support at support@prmsu.edu.ph.
 
             Best regards,
             The PRMSU Scheduling Team
