@@ -6,6 +6,7 @@ let validationTimeout;
 const DEBOUNCE_DELAY = 300;
 
 // Real-time field validator
+// Enhanced real-time field validator with better messages
 function validateFieldRealTime(fieldType, value, relatedFields = {}) {
   clearTimeout(validationTimeout);
   validationTimeout = setTimeout(() => {
@@ -33,47 +34,80 @@ function validateFieldRealTime(fieldType, value, relatedFields = {}) {
       .then(response => response.json())
       .then(result => {
         console.log("Validation response:", result);
-        resetConflictStyles();
+
+        // Clear previous warnings for this field type
+        const fieldId = fieldType.replace("_", "-");
+        removeConflictWarning(fieldId);
+
         if (result.success && result.conflicts?.length > 0) {
           result.conflicts.forEach(conflict => {
-            let fieldId, message;
+            let fieldId, message, warningLevel = 'error';
+
             switch (true) {
               case conflict.includes("Section"):
                 fieldId = "section-name";
-                message = conflict.includes("schedule") ? `Section ${conflict}` : "Section conflict detected";
+                message = conflict.includes("schedule") ?
+                  `👥 ${conflict}` :
+                  "👥 This section has scheduling conflicts. Please check the section's existing schedules.";
                 break;
               case conflict.includes("Faculty"):
                 fieldId = "faculty-name";
-                message = conflict.includes("schedule") ? `Faculty ${conflict}` : "Faculty conflict detected";
+                message = conflict.includes("schedule") ?
+                  `👨‍🏫 ${conflict}` :
+                  "👨‍🏫 Faculty member has overlapping schedules. Consider adjusting time or day.";
+                warningLevel = 'error';
                 break;
               case conflict.includes("Room"):
                 fieldId = "room-name";
-                message = conflict.includes("schedule") ? `Room ${conflict}` : "Room conflict detected";
+                message = conflict.includes("schedule") ?
+                  `🏫 ${conflict}` :
+                  "🏫 Room is already occupied during this time. Please select another room or time slot.";
+                warningLevel = 'error';
                 break;
               case conflict.includes("time"):
                 fieldId = "start-time";
-                highlightConflictField("end-time", conflict.includes("schedule") ? `Time ${conflict}` : "Time conflict detected");
+                const endFieldId = "end-time";
+                const timeMessage = conflict.includes("schedule") ?
+                  `⏰ ${conflict}` :
+                  "⏰ Time conflict detected. This time slot overlaps with existing schedules.";
+
+                displayConflictWarning(fieldId, timeMessage, 'error');
+                displayConflictWarning(endFieldId, timeMessage, 'error');
                 break;
               default:
                 fieldId = fieldType.replace("_", "-");
-                message = result.message || "Validation issue detected";
+                message = result.message || "⚠️ Validation issue detected. Please check your input.";
+                warningLevel = 'warning';
             }
-            if (fieldId) highlightConflictField(fieldId, message);
+
+            if (fieldId && !conflict.includes("time")) {
+              displayConflictWarning(fieldId, message, warningLevel);
+            }
           });
         } else if (!result.success && result.message) {
-          highlightConflictField(fieldType.replace("_", "-"), result.message);
+          displayConflictWarning(fieldType.replace("_", "-"),
+            `⚠️ ${result.message}`,
+            'warning'
+          );
         } else {
-          const field = document.getElementById(fieldType.replace("_", "-"));
-          if (field) {
-            const parent = field.parentNode;
-            const tooltip = parent.querySelector(".conflict-tooltip");
-            if (tooltip) tooltip.remove();
-            field.classList.remove("border-red-500", "bg-red-50");
-            field.classList.add("border-gray-300");
+          // No conflicts - show success message for important fields
+          const fieldId = fieldType.replace("_", "-");
+          if (['faculty-name', 'room-name', 'section-name'].includes(fieldId) && value) {
+            displayConflictWarning(fieldId,
+              "✅ No conflicts detected for this selection.",
+              'success'
+            );
           }
         }
       })
-      .catch(error => console.error("Real-time validation error:", error));
+      .catch(error => {
+        console.error("Real-time validation error:", error);
+        const fieldId = fieldType.replace("_", "-");
+        displayConflictWarning(fieldId,
+          "🔧 Validation service temporarily unavailable. Please check your inputs manually.",
+          'warning'
+        );
+      });
   }, DEBOUNCE_DELAY);
 }
 
@@ -136,7 +170,7 @@ function handleDrop(e) {
   const newStartTime = dropZone.dataset.startTime;
   const newEndTime = dropZone.dataset.endTime;
   console.log("Dropping schedule:", scheduleId, "to", newDay, newStartTime, newEndTime);
-  
+
   const scheduleIndex = window.scheduleData.findIndex(
     (s) => s.schedule_id == scheduleId
   );
@@ -146,7 +180,7 @@ function handleDrop(e) {
     const originalEnd = new Date(`2000-01-01 ${originalSchedule.end_time.substring(0, 5)}`);
     const durationMinutes = (originalEnd - originalStart) / (1000 * 60);
     const formattedEndTime = calculateEndTime(newStartTime, durationMinutes);
-    
+
     console.log("Time update details:", {
       originalDuration: durationMinutes + " minutes",
       newStart: newStartTime,
@@ -156,7 +190,7 @@ function handleDrop(e) {
     window.scheduleData[scheduleIndex].day_of_week = newDay;
     window.scheduleData[scheduleIndex].start_time = newStartTime + ":00";
     window.scheduleData[scheduleIndex].end_time = formattedEndTime + ":00";
-    
+
     safeUpdateScheduleDisplay(window.scheduleData);
     showNotification(`Schedule moved to ${newDay} ${newStartTime}-${formattedEndTime}`, "success");
   }
@@ -175,7 +209,7 @@ function initializeDragAndDrop() {
     zone.removeEventListener("dragenter", handleDragEnter);
     zone.removeEventListener("dragleave", handleDragLeave);
     zone.removeEventListener("drop", handleDrop);
-    
+
     zone.addEventListener("dragover", handleDragOver);
     zone.addEventListener("dragenter", handleDragEnter);
     zone.addEventListener("dragleave", handleDragLeave);
@@ -185,7 +219,7 @@ function initializeDragAndDrop() {
   draggables.forEach((draggable) => {
     draggable.removeEventListener("dragstart", handleDragStart);
     draggable.removeEventListener("dragend", handleDragEnd);
-    
+
     draggable.addEventListener("dragstart", handleDragStart);
     draggable.addEventListener("dragend", handleDragEnd);
   });
@@ -219,7 +253,7 @@ function confirmDeleteAllSchedules() {
   console.log("Confirming deletion of all schedules...");
   const deleteButton = document.querySelector('#delete-all-modal button[onclick="confirmDeleteAllSchedules()"]');
   const originalText = deleteButton ? deleteButton.innerHTML : "";
-  
+
   if (deleteButton) {
     deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Deleting...';
     deleteButton.disabled = true;
@@ -245,7 +279,7 @@ function confirmDeleteAllSchedules() {
         window.scheduleData = [];
         safeUpdateScheduleDisplay([]);
         buildCurrentSemesterCourseMappings();
-        
+
         const generationResults = document.getElementById("generation-results");
         if (generationResults) generationResults.classList.add("hidden");
       } else {
@@ -270,13 +304,13 @@ let currentDeleteScheduleId = null;
 function openDeleteSingleModal(scheduleId, courseCode, sectionName, day, startTime, endTime) {
   console.log("Opening single delete modal for schedule:", scheduleId);
   currentDeleteScheduleId = scheduleId;
-  
+
   const detailsElement = document.getElementById("single-delete-details");
   if (detailsElement) {
-    detailsElement.innerHTML = 
+    detailsElement.innerHTML =
       '<div class="text-sm">' +
-        '<div class="font-semibold">' + courseCode + ' - ' + sectionName + '</div>' +
-        '<div class="text-gray-600 mt-1">' + day + ' • ' + startTime + ' to ' + endTime + '</div>' +
+      '<div class="font-semibold">' + courseCode + ' - ' + sectionName + '</div>' +
+      '<div class="text-gray-600 mt-1">' + day + ' • ' + startTime + ' to ' + endTime + '</div>' +
       '</div>';
   }
 
@@ -393,12 +427,12 @@ function showNotification(message, type = "success", duration = 5000) {
 
   const notificationDiv = document.createElement("div");
   notificationDiv.id = "notification";
-  
+
   let notificationClass = "fixed top-4 right-4 z-50 max-w-sm w-full ";
   let iconClass = "";
   let textClass = "";
   let buttonClass = "";
-  
+
   if (type === "success") {
     notificationClass += "bg-green-50 border border-green-200";
     iconClass = "fa-check-circle text-green-400";
@@ -415,27 +449,27 @@ function showNotification(message, type = "success", duration = 5000) {
     textClass = "text-yellow-800";
     buttonClass = "text-yellow-400 hover:text-yellow-600";
   }
-  
+
   notificationClass += " rounded-lg shadow-lg transform transition-transform duration-300 translate-x-full";
   notificationDiv.className = notificationClass;
-  
-  notificationDiv.innerHTML = 
+
+  notificationDiv.innerHTML =
     '<div class="flex p-4">' +
-      '<div class="flex-shrink-0">' +
-        '<i class="fas ' + iconClass + ' text-lg"></i>' +
-      '</div>' +
-      '<div class="ml-3 flex-1">' +
-        '<p class="text-sm font-medium ' + textClass + ' whitespace-pre-line">' + message + '</p>' +
-      '</div>' +
-      '<div class="ml-auto pl-3">' +
-        '<button class="inline-flex ' + buttonClass + '" onclick="this.parentElement.parentElement.parentElement.remove()">' +
-          '<i class="fas fa-times"></i>' +
-        '</button>' +
-      '</div>' +
+    '<div class="flex-shrink-0">' +
+    '<i class="fas ' + iconClass + ' text-lg"></i>' +
+    '</div>' +
+    '<div class="ml-3 flex-1">' +
+    '<p class="text-sm font-medium ' + textClass + ' whitespace-pre-line">' + message + '</p>' +
+    '</div>' +
+    '<div class="ml-auto pl-3">' +
+    '<button class="inline-flex ' + buttonClass + '" onclick="this.parentElement.parentElement.parentElement.remove()">' +
+    '<i class="fas fa-times"></i>' +
+    '</button>' +
+    '</div>' +
     '</div>';
-  
+
   document.body.appendChild(notificationDiv);
-  
+
   setTimeout(() => {
     notificationDiv.classList.remove("translate-x-full");
     notificationDiv.classList.add("translate-x-0");
@@ -451,18 +485,34 @@ function showNotification(message, type = "success", duration = 5000) {
   }, duration);
 }
 
+// Enhanced autoFillCourseName with better messaging
 function autoFillCourseName(courseCode) {
   const courseNameInput = document.getElementById("course-name");
   if (!courseCode || !courseNameInput) return;
-  
+
   const enteredCode = courseCode.trim().toUpperCase();
   console.log("Looking up course:", enteredCode);
-  
+
+  // Clear previous warnings
+  removeConflictWarning("course-code");
+  removeConflictWarning("course-name");
+
+  // Check for conflicts
+  const conflict = validateCourseConflict(enteredCode, '');
+
   if (currentSemesterCourses[enteredCode]) {
     const course = currentSemesterCourses[enteredCode];
     courseNameInput.value = course.name;
     console.log("Found course:", course);
-    
+
+    // Show success message for valid course
+    if (!conflict) {
+      displayConflictWarning("course-code",
+        "✅ Course found in curriculum! Course name auto-filled.",
+        'success'
+      );
+    }
+
     setTimeout(() => {
       filterSectionsByYearLevel();
       handleSectionChange();
@@ -471,6 +521,13 @@ function autoFillCourseName(courseCode) {
     console.log("Course not found in current semester");
     courseNameInput.value = "";
     resetSectionFilter();
+
+    if (!conflict && enteredCode) {
+      displayConflictWarning("course-code",
+        "🔍 Course not found in current semester curriculum. Please verify the course code.",
+        'warning'
+      );
+    }
   }
 }
 
@@ -478,7 +535,7 @@ function filterSectionsByYearLevel() {
   const sectionSelect = document.getElementById("section-name");
   const courseCodeInput = document.getElementById("course-code");
   if (!sectionSelect || !courseCodeInput) return;
-  
+
   const courseCode = courseCodeInput.value.trim().toUpperCase();
   if (!courseCode) {
     resetSectionFilter();
@@ -500,12 +557,12 @@ function filterSectionsByYearLevel() {
 
   const searchYear = targetYearLevel.toLowerCase().replace(" year", "").trim();
   let foundMatchingSections = false;
-  
+
   const optgroups = sectionSelect.querySelectorAll("optgroup");
   optgroups.forEach((optgroup) => {
     const groupLabel = optgroup.label.toLowerCase();
     const groupYearLevel = groupLabel.replace(" year", "").trim();
-    
+
     if (groupYearLevel === searchYear) {
       const options = optgroup.querySelectorAll("option");
       options.forEach((option) => option.style.display = "");
@@ -535,10 +592,10 @@ function filterSectionsByYearLevel() {
 function resetSectionFilter() {
   const sectionSelect = document.getElementById("section-name");
   if (!sectionSelect) return;
-  
+
   const allOptions = sectionSelect.querySelectorAll("option");
   allOptions.forEach((option) => option.style.display = "");
-  
+
   const optgroups = sectionSelect.querySelectorAll("optgroup");
   optgroups.forEach((optgroup) => optgroup.style.display = "");
 }
@@ -548,7 +605,7 @@ function updateTimeFields() {
   const endTimeSelect = document.getElementById("end-time");
   const modalStartTime = document.getElementById("modal-start-time");
   const modalEndTime = document.getElementById("modal-end-time");
-  
+
   if (startTimeSelect && modalStartTime) modalStartTime.value = startTimeSelect.value + ":00";
   if (endTimeSelect && modalEndTime) modalEndTime.value = endTimeSelect.value + ":00";
 }
@@ -586,6 +643,14 @@ function handleScheduleSubmit(e) {
     semester_id: currentSemesterId,
   };
   console.log("Form data:", data);
+
+  // Check for course conflicts
+  const courseConflict = validateCourseConflict(data.course_code, data.course_name, currentEditingId);
+  if (courseConflict) {
+    highlightConflictField("course-code", courseConflict.message);
+    highlightConflictField("course-name", courseConflict.message);
+  }
+
 
   const validatePromises = [
     validateFieldRealTime("section_name", data.section_name),
@@ -633,14 +698,14 @@ function handleScheduleSubmit(e) {
       { id: "faculty-name", value: data.faculty_name, name: "Faculty" },
       { id: "day-select", value: data.day_of_week, name: "Day Pattern" },
     ];
-    
+
     requiredFields.forEach((field) => {
       if (!field.value) {
         highlightConflictField(field.id, field.name + " is required");
         hasEmptyFields = true;
       }
     });
-    
+
     if (hasEmptyFields) {
       showNotification("Please fill out all required fields.", "error");
       return;
@@ -670,7 +735,7 @@ function handleScheduleSubmit(e) {
           closeModal();
           resetConflictStyles();
           let message = result.message || (currentEditingId ? "Schedule updated successfully!" : "Schedule added successfully!");
-          
+
           if (result.schedules && result.schedules.length > 1) {
             message = "Schedules added successfully for " + result.schedules.length + " days!";
             result.schedules.forEach((schedule) => {
@@ -684,7 +749,7 @@ function handleScheduleSubmit(e) {
               window.scheduleData.push({ ...result.schedules[0], semester_id: currentSemesterId });
             }
           }
-          
+
           if (result.partial_success) message += " (" + result.failed_days + " day(s) had conflicts)";
           showNotification(message, "success");
           safeUpdateScheduleDisplay(window.scheduleData);
@@ -725,7 +790,7 @@ function highlightConflictField(fieldId, message) {
   if (field) {
     field.classList.add("border-red-500", "bg-red-50");
     field.classList.remove("border-gray-300", "bg-white");
-    
+
     let tooltip = field.parentNode.querySelector(".conflict-tooltip");
     if (!tooltip) {
       tooltip = document.createElement("div");
@@ -736,24 +801,23 @@ function highlightConflictField(fieldId, message) {
   }
 }
 
+// Enhanced reset function
 function resetConflictStyles() {
   const form = document.getElementById("schedule-form");
+  if (!form) return;
+
   const fields = form.querySelectorAll("input, select, textarea");
   fields.forEach((field) => {
-    field.classList.remove("border-red-500", "bg-red-50");
-    field.classList.add("border-gray-300");
-    if (field.type !== "hidden") field.style.backgroundColor = "";
+    const fieldId = field.id;
+    removeConflictWarning(fieldId);
   });
-  
-  const tooltips = form.querySelectorAll(".conflict-tooltip");
-  tooltips.forEach((tooltip) => tooltip.remove());
 }
 
 function buildCurrentSemesterCourseMappings() {
   currentSemesterCourses = {};
   console.log("Building course mappings for current semester:", window.currentSemester);
   console.log("Available curriculum courses:", window.curriculumCourses);
-  
+
   if (window.curriculumCourses && window.curriculumCourses.length > 0) {
     console.log("Using curriculum courses:", window.curriculumCourses.length);
     window.curriculumCourses.forEach((course) => {
@@ -770,7 +834,7 @@ function buildCurrentSemesterCourseMappings() {
         };
       }
     });
-    
+
     console.log("Course mappings built:", Object.keys(currentSemesterCourses).length, "unique courses");
     console.log("Sample courses:", Object.values(currentSemesterCourses).slice(0, 3));
     updateCourseCodesDatalist();
@@ -780,7 +844,7 @@ function buildCurrentSemesterCourseMappings() {
     if (currentSemesterId) {
       const currentSemesterSchedules = window.scheduleData.filter((schedule) => schedule.semester_id == currentSemesterId);
       console.log("Fallback: Using", currentSemesterSchedules.length, "schedules for current semester");
-      
+
       currentSemesterSchedules.forEach((schedule) => {
         if (schedule.course_code && schedule.course_name) {
           currentSemesterCourses[schedule.course_code.trim().toUpperCase()] = {
@@ -798,7 +862,7 @@ function buildCurrentSemesterCourseMappings() {
 function updateCourseCodesDatalist() {
   const courseCodesDatalist = document.getElementById("course-codes");
   if (!courseCodesDatalist) return;
-  
+
   courseCodesDatalist.innerHTML = "";
   Object.values(currentSemesterCourses).forEach((course) => {
     const option = document.createElement("option");
@@ -808,18 +872,33 @@ function updateCourseCodesDatalist() {
     option.setAttribute("data-course-id", course.course_id || "");
     courseCodesDatalist.appendChild(option);
   });
-  
+
   console.log("Updated course codes datalist with", courseCodesDatalist.children.length, "options");
 }
 
+// Enhanced syncCourseName with conflict detection
 function syncCourseName() {
   const courseCodeInput = document.getElementById("course-code");
   const courseNameInput = document.getElementById("course-name");
   if (!courseCodeInput || !courseNameInput) return;
-  
+
   const enteredCode = courseCodeInput.value.trim().toUpperCase();
+  const enteredName = courseNameInput.value.trim();
+
   console.log("Looking up course:", enteredCode);
-  
+
+  // Check for conflicts
+  const conflict = validateCourseConflict(enteredCode, enteredName);
+  if (conflict) {
+    highlightConflictField("course-code", conflict.message);
+    if (enteredName) {
+      highlightConflictField("course-name", conflict.message);
+    }
+  } else {
+    resetConflictField("course-code");
+    resetConflictField("course-name");
+  }
+
   if (currentSemesterCourses[enteredCode]) {
     const course = currentSemesterCourses[enteredCode];
     courseNameInput.value = course.name;
@@ -829,43 +908,66 @@ function syncCourseName() {
   }
 }
 
+// Enhanced syncCourseCode with conflict detection
 function syncCourseCode() {
   const courseCodeInput = document.getElementById("course-code");
   const courseNameInput = document.getElementById("course-name");
   if (!courseCodeInput || !courseNameInput) return;
-  
+
   const enteredName = courseNameInput.value.trim().toLowerCase();
   const matchingCourse = Object.values(currentSemesterCourses).find(
     (course) => course.name.toLowerCase() === enteredName
   );
-  
+
   if (matchingCourse) {
     courseCodeInput.value = matchingCourse.code;
     console.log("Found matching course code:", matchingCourse.code);
+
+    // Check for conflicts after syncing
+    const conflict = validateCourseConflict(matchingCourse.code, enteredName);
+    if (conflict) {
+      highlightConflictField("course-code", conflict.message);
+      highlightConflictField("course-name", conflict.message);
+    } else {
+      resetConflictField("course-code");
+      resetConflictField("course-name");
+    }
   }
 }
 
+// Enhanced section change handler with better messages
 function handleSectionChange() {
   const sectionSelect = document.getElementById("section-name");
   const courseCodeInput = document.getElementById("course-code");
   const roomSelect = document.getElementById("room-name");
   if (!sectionSelect) return;
-  
+
   const selectedSection = sectionSelect.value;
   const selectedOption = sectionSelect.options[sectionSelect.selectedIndex];
   console.log("Section changed to:", selectedSection);
 
+  // Clear previous section warnings
+  removeConflictWarning("section-name");
+
   if (selectedOption && roomSelect) {
     const sectionCapacity = extractCapacityFromSection(selectedOption.text);
-    if (sectionCapacity) highlightSuitableRooms(sectionCapacity);
+    if (sectionCapacity) {
+      highlightSuitableRooms(sectionCapacity);
+      displayConflictWarning("room-name",
+        `📊 Room highlighting adjusted for section capacity: ${sectionCapacity} students`,
+        'info'
+      );
+    }
   }
 
   if (courseCodeInput && courseCodeInput.value) {
     validateCourseSectionCompatibility(courseCodeInput.value, selectedSection);
   }
 
-  if (selectedSection) checkExistingSectionSchedules(selectedSection);
-  
+  if (selectedSection) {
+    checkExistingSectionSchedules(selectedSection);
+  }
+
   updateSectionDetails(selectedOption);
 }
 
@@ -877,14 +979,14 @@ function extractCapacityFromSection(sectionText) {
 function highlightSuitableRooms(requiredCapacity) {
   const roomSelect = document.getElementById("room-name");
   if (!roomSelect) return;
-  
+
   const options = roomSelect.querySelectorAll("option");
   options.forEach((option) => {
     if (option.value === "Online") {
       option.style.backgroundColor = "#f0f9ff";
       return;
     }
-    
+
     const roomCapacity = extractRoomCapacity(option.text);
     if (roomCapacity && roomCapacity >= requiredCapacity) {
       option.style.backgroundColor = "#f0fff4";
@@ -897,7 +999,7 @@ function highlightSuitableRooms(requiredCapacity) {
       option.title = "";
     }
   });
-  
+
   console.log("Highlighted rooms for capacity requirement:", requiredCapacity);
 }
 
@@ -906,36 +1008,48 @@ function extractRoomCapacity(roomText) {
   return match ? parseInt(match[1]) : null;
 }
 
+// Enhanced section compatibility check
 function validateCourseSectionCompatibility(courseCode, sectionName) {
   const course = currentSemesterCourses[courseCode.toUpperCase()];
   if (!course || !course.year_level) return;
-  
+
   const sectionSelect = document.getElementById("section-name");
   const selectedOption = sectionSelect.options[sectionSelect.selectedIndex];
   if (!selectedOption) return;
-  
+
   const sectionYearLevel = selectedOption.getAttribute("data-year-level");
   if (sectionYearLevel && course.year_level !== sectionYearLevel) {
     console.warn("Course-Section Mismatch: Course (" + course.year_level + ") ≠ Section (" + sectionYearLevel + ")");
-    highlightConflictField("section-name", "Warning: Course " + courseCode + " is for " + course.year_level + " but section " + sectionName + " is " + sectionYearLevel);
+    displayConflictWarning("section-name",
+      `📚 Year level mismatch: Course "${courseCode}" is for ${course.year_level} but section "${sectionName}" is ${sectionYearLevel}. This may not be appropriate.`,
+      'warning'
+    );
   } else {
     console.log("Course-section compatibility: OK");
+    removeConflictWarning("section-name");
   }
 }
 
+// Enhanced existing section schedule check
 function checkExistingSectionSchedules(sectionName) {
   const currentSemesterId = window.currentSemester?.semester_id;
   if (!currentSemesterId) return;
-  
+
   const existingSchedules = window.scheduleData.filter(
     (schedule) => schedule.section_name === sectionName && schedule.semester_id == currentSemesterId
   );
-  
+
   if (existingSchedules.length > 0) {
     console.log("Section " + sectionName + " has " + existingSchedules.length + " existing schedules:", existingSchedules);
     const scheduleCount = existingSchedules.length;
     const courseCodes = [...new Set(existingSchedules.map((s) => s.course_code))].join(", ");
-    highlightConflictField("section-name", "Section " + sectionName + " already has " + scheduleCount + " schedule(s) for: " + courseCodes);
+
+    displayConflictWarning("section-name",
+      `📅 Section "${sectionName}" already has ${scheduleCount} scheduled course(s): ${courseCodes}. Adding more schedules may affect student workload.`,
+      'info'
+    );
+  } else {
+    removeConflictWarning("section-name");
   }
 }
 
@@ -948,14 +1062,14 @@ function updateSectionDetails(selectedOption) {
     const sectionSelect = document.getElementById("section-name");
     sectionSelect.parentNode.appendChild(detailsDiv);
   }
-  
+
   if (selectedOption && selectedOption.value) {
     const sectionText = selectedOption.text;
     const yearLevel = selectedOption.getAttribute("data-year-level");
-    detailsDiv.innerHTML = 
+    detailsDiv.innerHTML =
       '<div class="flex justify-between items-center">' +
-        '<span class="font-medium">Section Details:</span>' +
-        '<span class="text-blue-600">' + (yearLevel || "Unknown Year") + '</span>' +
+      '<span class="font-medium">Section Details:</span>' +
+      '<span class="text-blue-600">' + (yearLevel || "Unknown Year") + '</span>' +
       '</div>' +
       '<div class="text-gray-600 mt-1">' + sectionText + '</div>';
     detailsDiv.style.display = "block";
@@ -967,10 +1081,14 @@ function updateSectionDetails(selectedOption) {
 function openAddModal() {
   console.log("Opening add modal for current semester:", window.currentSemester);
   buildCurrentSemesterCourseMappings();
-  
+
   const form = document.getElementById("schedule-form");
   if (form) form.reset();
-  
+
+  // Reset conflict styles specifically for course fields
+  resetConflictField("course-code");
+  resetConflictField("course-name");
+
   document.getElementById("modal-title").textContent = "Add Schedule";
   document.getElementById("schedule-id").value = "";
   document.getElementById("modal-day").value = "Monday";
@@ -981,17 +1099,17 @@ function openAddModal() {
   document.getElementById("faculty-name").value = "";
   document.getElementById("room-name").value = "Online";
   document.getElementById("section-name").value = "";
-  
+
   document.getElementById("day-select").value = "Monday";
   document.getElementById("start-time").value = "07:30";
   document.getElementById("end-time").value = "08:30";
   document.getElementById("schedule-type").value = "f2f";
-  
+
   resetSectionFilter();
-  
+
   const sectionDetails = document.getElementById("section-details");
   if (sectionDetails) sectionDetails.style.display = "none";
-  
+
   currentEditingId = null;
   showModal();
 }
@@ -999,11 +1117,11 @@ function openAddModal() {
 function openAddModalForSlot(day, startTime, endTime) {
   console.log("Opening add modal for slot:", day, startTime, endTime);
   openAddModal();
-  
+
   document.getElementById("modal-day").value = day;
   document.getElementById("modal-start-time").value = startTime;
   document.getElementById("modal-end-time").value = endTime;
-  
+
   document.getElementById("day-select").value = day;
   document.getElementById("start-time").value = startTime;
   document.getElementById("end-time").value = endTime;
@@ -1017,14 +1135,18 @@ function editSchedule(scheduleId) {
     showNotification("Schedule not found", "error");
     return;
   }
-  
+
+  // Reset conflict styles when editing
+  resetConflictField("course-code");
+  resetConflictField("course-name");
+
   console.log("Found schedule:", schedule);
-  
+
   if (schedule.semester_id != window.currentSemester?.semester_id) {
     showNotification("Can only edit schedules from current semester", "error");
     return;
   }
-  
+
   buildCurrentSemesterCourseMappings();
   document.getElementById("modal-title").textContent = "Edit Schedule";
   document.getElementById("schedule-id").value = schedule.schedule_id;
@@ -1033,18 +1155,18 @@ function editSchedule(scheduleId) {
   document.getElementById("faculty-name").value = schedule.faculty_name || "";
   document.getElementById("room-name").value = schedule.room_name || "";
   document.getElementById("section-name").value = schedule.section_name || "";
-  
+
   const day = schedule.day_of_week || "Monday";
   document.getElementById("modal-day").value = day;
   document.getElementById("day-select").value = day;
-  
+
   const startTime = schedule.start_time ? schedule.start_time.substring(0, 5) : "07:30";
   const endTime = schedule.end_time ? schedule.end_time.substring(0, 5) : "08:30";
   document.getElementById("modal-start-time").value = startTime;
   document.getElementById("modal-end-time").value = endTime;
   document.getElementById("start-time").value = startTime;
   document.getElementById("end-time").value = endTime;
-  
+
   currentEditingId = scheduleId;
   showModal();
 }
@@ -1074,7 +1196,7 @@ function closeModal() {
 function saveAllChanges() {
   const currentSemesterId = window.currentSemester?.semester_id;
   const currentSemesterSchedules = window.scheduleData.filter((s) => s.semester_id == currentSemesterId);
-  
+
   const updatedSchedules = currentSemesterSchedules.map((schedule) => ({
     schedule_id: schedule.schedule_id,
     day_of_week: schedule.day_of_week,
@@ -1087,7 +1209,7 @@ function saveAllChanges() {
     section_name: schedule.section_name,
     semester_id: schedule.semester_id,
   }));
-  
+
   fetch("/chair/schedule_management", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1115,19 +1237,19 @@ function filterSchedulesManual() {
   const section = document.getElementById("filter-section-manual").value;
   const room = document.getElementById("filter-room-manual").value;
   console.log("Filtering by:", { yearLevel, section, room });
-  
+
   const scheduleCards = document.querySelectorAll("#schedule-grid .schedule-card");
   const dropZones = document.querySelectorAll("#schedule-grid .drop-zone");
-  
+
   scheduleCards.forEach((card) => {
     const cardYearLevel = card.getAttribute("data-year-level");
     const cardSectionName = card.getAttribute("data-section-name");
     const cardRoomName = card.getAttribute("data-room-name");
-    
+
     const matchesYear = !yearLevel || cardYearLevel === yearLevel;
     const matchesSection = !section || cardSectionName === section;
     const matchesRoom = !room || cardRoomName === room;
-    
+
     if (matchesYear && matchesSection && matchesRoom) {
       card.style.display = "block";
       card.parentElement.style.display = "block";
@@ -1167,7 +1289,7 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log("Manual schedules JS loaded");
   console.log("Current semester:", window.currentSemester);
   console.log("Schedule data count:", window.scheduleData?.length || 0);
-  
+
   buildCurrentSemesterCourseMappings();
   initializeDragAndDrop();
 
@@ -1256,11 +1378,26 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
+  // Add course conflict detection event listeners
   const courseCodeInput = document.getElementById("course-code");
-  if (courseCodeInput) courseCodeInput.addEventListener("input", syncCourseName);
+  if (courseCodeInput) {
+    courseCodeInput.addEventListener("blur", syncCourseName);
+    courseCodeInput.addEventListener("input", function () {
+      // Clear conflict warning when user starts typing
+      resetConflictField("course-code");
+      resetConflictField("course-name");
+    });
+  }
 
   const courseNameInput = document.getElementById("course-name");
-  if (courseNameInput) courseNameInput.addEventListener("input", syncCourseCode);
+  if (courseNameInput) {
+    courseNameInput.addEventListener("blur", syncCourseCode);
+    courseNameInput.addEventListener("input", function () {
+      // Clear conflict warning when user starts typing
+      resetConflictField("course-code");
+      resetConflictField("course-name");
+    });
+  }
 
   // Ensure scheduleData is always an array
   if (!Array.isArray(window.scheduleData)) window.scheduleData = [];
@@ -1274,3 +1411,114 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log("Manual schedules initialized successfully");
   console.log("Available courses for current semester:", Object.keys(currentSemesterCourses).length);
 });
+
+
+// Enhanced course conflict detection with friendly messages
+function validateCourseConflict(courseCode, courseName, currentScheduleId = null) {
+  if (!courseCode || !window.scheduleData || window.scheduleData.length === 0) {
+    return null;
+  }
+
+  const currentSemesterId = window.currentSemester?.semester_id;
+  const enteredCode = courseCode.trim().toUpperCase();
+  const enteredName = courseName.trim().toLowerCase();
+
+  // Check if course exists in curriculum
+  if (!currentSemesterCourses[enteredCode] && enteredCode) {
+    displayConflictWarning("course-code",
+      "⚠️ This course code is not in the current semester curriculum. Please verify the code or check if this course should be added to the curriculum.",
+      'warning'
+    );
+  } else {
+    removeConflictWarning("course-code");
+  }
+
+  // Check for duplicate course codes in the same semester
+  const duplicateCourses = window.scheduleData.filter(schedule => {
+    if (schedule.semester_id != currentSemesterId) return false;
+    if (currentScheduleId && schedule.schedule_id == currentScheduleId) return false;
+
+    const scheduleCode = schedule.course_code?.trim().toUpperCase();
+    const scheduleName = schedule.course_name?.trim().toLowerCase();
+
+    return scheduleCode === enteredCode || scheduleName === enteredName;
+  });
+
+  if (duplicateCourses.length > 0) {
+    const conflictCount = duplicateCourses.length;
+    const sampleConflicts = duplicateCourses.slice(0, 2).map(s =>
+      `${s.section_name} (${s.day_of_week} ${formatTime(s.start_time?.substring(0, 5))}-${formatTime(s.end_time?.substring(0, 5))})`
+    ).join(', ');
+
+    const extraCount = conflictCount > 2 ? ` and ${conflictCount - 2} more` : '';
+
+    const message = `📚 This course is already scheduled in ${conflictCount} section(s): ${sampleConflicts}${extraCount}. Duplicate scheduling may cause conflicts.`;
+
+    return {
+      type: 'course_duplicate',
+      message: message,
+      conflicts: duplicateCourses,
+      warningLevel: 'warning' // This is a warning, not an error
+    };
+  }
+
+  return null;
+}
+
+// Add reset function for specific fields
+function resetConflictField(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (field) {
+    field.classList.remove("border-red-500", "bg-red-50");
+    field.classList.add("border-gray-300");
+
+    const tooltip = field.parentNode.querySelector(".conflict-tooltip");
+    if (tooltip) tooltip.remove();
+  }
+}
+
+// Enhanced conflict display with friendly messages
+function displayConflictWarning(fieldId, message, warningLevel = 'warning') {
+  const field = document.getElementById(fieldId);
+  if (!field) return;
+
+  // Remove existing warning
+  removeConflictWarning(fieldId);
+
+  // Add appropriate styling based on warning level
+  if (warningLevel === 'error') {
+    field.classList.add("border-red-500", "bg-red-50");
+    field.classList.remove("border-gray-300", "bg-yellow-50");
+  } else {
+    field.classList.add("border-yellow-500", "bg-yellow-50");
+    field.classList.remove("border-gray-300", "border-red-500", "bg-red-50");
+  }
+
+  // Create warning message element
+  const warningDiv = document.createElement("div");
+  warningDiv.className = `conflict-warning text-${warningLevel === 'error' ? 'red' : 'yellow'}-600 text-xs mt-1 flex items-start space-x-1`;
+  warningDiv.innerHTML = `
+        <i class="fas fa-exclamation-triangle mt-0.5 flex-shrink-0"></i>
+        <span class="flex-1">${message}</span>
+    `;
+
+  // Insert after the field
+  field.parentNode.appendChild(warningDiv);
+}
+
+// Remove specific warning
+function removeConflictWarning(fieldId) {
+  const field = document.getElementById(fieldId);
+  if (!field) return;
+
+  const parent = field.parentNode;
+  const existingWarning = parent.querySelector('.conflict-warning');
+  if (existingWarning) {
+    existingWarning.remove();
+  }
+
+  // Reset field styling
+  field.classList.remove("border-red-500", "bg-red-50", "border-yellow-500", "bg-yellow-50");
+  field.classList.add("border-gray-300");
+  field.style.backgroundColor = "";
+}
