@@ -293,7 +293,7 @@ class UserModel
                 case 6: // Faculty
                     // Faculty record already created above
                     break;
-                
+
                 default:
                     // No role-specific table for other roles
                     break;
@@ -656,16 +656,16 @@ class UserModel
         }
     }
 
-/**
- * Fetch users by college ID
- * @param int $collegeId
- * @param string|null $status 'active', 'inactive', 'pending', or null for all
- * @return array
- */
-public function getUsersByCollege($collegeId, $status = null)
-{
-    try {
-        $query = "
+    /**
+     * Fetch users by college ID
+     * @param int $collegeId
+     * @param string|null $status 'active', 'inactive', 'pending', or null for all
+     * @return array
+     */
+    public function getUsersByCollege($collegeId, $status = null)
+    {
+        try {
+            $query = "
             SELECT u.user_id, u.employee_id, u.username, u.email, u.first_name, u.middle_name, 
                    u.last_name, u.suffix, u.profile_picture, u.is_active,
                    r.role_name, d.department_name, c.college_name
@@ -675,23 +675,23 @@ public function getUsersByCollege($collegeId, $status = null)
             JOIN colleges c ON u.college_id = c.college_id
             WHERE u.college_id = :collegeId
         ";
-        if ($status === 'active') {
-            $query .= " AND u.is_active = 1";
-        } elseif ($status === 'inactive') {
-            $query .= " AND u.is_active = -1";
-        } elseif ($status === 'pending') {
-            $query .= " AND u.is_active = 0";
+            if ($status === 'active') {
+                $query .= " AND u.is_active = 1";
+            } elseif ($status === 'inactive') {
+                $query .= " AND u.is_active = -1";
+            } elseif ($status === 'pending') {
+                $query .= " AND u.is_active = 0";
+            }
+            $query .= " ORDER BY u.last_name, u.first_name";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':collegeId', $collegeId, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Error fetching users by college: " . $e->getMessage());
+            return [];
         }
-        $query .= " ORDER BY u.last_name, u.first_name";
-        $stmt = $this->db->prepare($query);
-        $stmt->bindParam(':collegeId', $collegeId, PDO::PARAM_INT);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (PDOException $e) {
-        error_log("Error fetching users by college: " . $e->getMessage());
-        return [];
     }
-}
 
     public function promoteToProgramChair($userId, $departmentId)
     {
@@ -806,23 +806,23 @@ public function getUsersByCollege($collegeId, $status = null)
                 error_log("demoteProgramChair: User is not a program chair, user_id=$userId");
                 return ['success' => false, 'error' => 'User is not a program chair'];
             }
-    
+
             $deptId = $user['department_id'];
-    
+
             $this->db->beginTransaction();
-    
+
             // Update user role to Faculty (role_id = 6)
             $query = "UPDATE users SET role_id = 6 WHERE user_id = :user_id";
             $stmt = $this->db->prepare($query);
             $stmt->execute([':user_id' => $userId]);
             error_log("demoteProgramChair: Updated role to Faculty for user_id=$userId");
-    
+
             // Fetch all program_chairs entries for this user
             $query = "SELECT program_id FROM program_chairs WHERE user_id = :user_id AND is_current = 1";
             $stmt = $this->db->prepare($query);
             $stmt->execute([':user_id' => $userId]);
             $programIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    
+
             if (empty($programIds)) {
                 error_log("demoteProgramChair: No active program chair entries found for user_id=$userId");
             } else {
@@ -833,7 +833,7 @@ public function getUsersByCollege($collegeId, $status = null)
                     $stmt = $this->db->prepare($checkQuery);
                     $stmt->execute([':program_id' => $programId]);
                     $existingCount = $stmt->fetchColumn();
-    
+
                     if ($existingCount > 0) {
                         // Delete existing is_current = 0 entries for this program_id
                         $deleteQuery = "DELETE FROM program_chairs 
@@ -843,7 +843,7 @@ public function getUsersByCollege($collegeId, $status = null)
                         error_log("demoteProgramChair: Deleted $existingCount is_current=0 entries for program_id=$programId");
                     }
                 }
-    
+
                 // Mark all program chair records for this user as not current
                 $query = "UPDATE program_chairs SET is_current = 0 WHERE user_id = :user_id";
                 $stmt = $this->db->prepare($query);
@@ -851,7 +851,7 @@ public function getUsersByCollege($collegeId, $status = null)
                 $affectedRows = $stmt->rowCount();
                 error_log("demoteProgramChair: Updated $affectedRows program_chairs entries for user_id=$userId");
             }
-    
+
             // Ensure faculty_departments entry exists or update it
             $facultyQuery = "SELECT f.faculty_id FROM faculty f WHERE f.user_id = :user_id";
             $stmt = $this->db->prepare($facultyQuery);
@@ -863,7 +863,7 @@ public function getUsersByCollege($collegeId, $status = null)
                 $stmt = $this->db->prepare($checkQuery);
                 $stmt->execute([':faculty_id' => $facultyId, ':dept_id' => $deptId]);
                 $exists = $stmt->fetchColumn();
-    
+
                 if ($exists) {
                     error_log("demoteProgramChair: faculty_departments entry already exists for faculty_id=$facultyId, dept_id=$deptId; no changes made");
                 } else {
@@ -876,7 +876,7 @@ public function getUsersByCollege($collegeId, $status = null)
             } else {
                 error_log("demoteProgramChair: No faculty record found for user_id=$userId");
             }
-    
+
             $this->db->commit();
             return ['success' => true, 'message' => 'User demoted to Faculty successfully'];
         } catch (PDOException $e) {
@@ -885,5 +885,29 @@ public function getUsersByCollege($collegeId, $status = null)
             return ['success' => false, 'error' => 'Database error: ' . $e->getMessage()];
         }
     }
-
+    public function getAllUsers()
+    {
+        try {
+            $stmt = $this->db->prepare("
+            SELECT 
+                u.user_id, u.employee_id, u.username, u.email, u.phone, 
+                u.title, u.first_name, u.middle_name, u.last_name, u.suffix,
+                u.profile_picture, u.role_id, u.department_id, u.college_id, 
+                u.is_active, u.created_at, u.updated_at,
+                r.role_name,
+                d.department_name,
+                c.college_name
+            FROM users u
+            LEFT JOIN roles r ON u.role_id = r.role_id
+            LEFT JOIN departments d ON u.department_id = d.department_id
+            LEFT JOIN colleges c ON u.college_id = c.college_id
+            ORDER BY u.first_name, u.last_name
+        ");
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("UserModel getAllUsers error: " . $e->getMessage());
+            return [];
+        }
+    }
 }

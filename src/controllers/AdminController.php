@@ -342,40 +342,49 @@ class AdminController
             $csrfToken = $this->authService->generateCsrfToken();
             error_log("manageUsers: Generated new CSRF token for GET request: " . $csrfToken);
 
-            $vpaaStmt = $this->db->prepare("
-            SELECT c.college_id
-            FROM vpaa v
-            JOIN users u ON v.user_id = u.user_id
-            JOIN departments d ON u.department_id = d.department_id
-            JOIN colleges c ON d.college_id = c.college_id
-            WHERE v.user_id = :user_id
-        ");
-            $vpaaStmt->execute([':user_id' => $_SESSION['user_id']]);
-            $vpaa = $vpaaStmt->fetch(PDO::FETCH_ASSOC);
+            // Check if user is VPAA (role_id = 1) - if yes, show ALL data
+            $showAllData = ($_SESSION['role_id'] == 1); // VPAA/Admin can see everything
 
-            if (!$vpaa) {
-                $_SESSION['flash'] = ['type' => 'error', 'message' => 'VPAA profile or college association not found'];
-                header('Location: /admin/dashboard');
-                exit;
+            if ($showAllData) {
+                error_log("manageUsers: Loading ALL data for VPAA/Admin");
+                // Get ALL users, colleges, and departments
+                $userModel = new UserModel();
+                $users = $userModel->getAllUsers(); // We need to create this method
+
+                $roles = $this->db->query("SELECT role_id, role_name FROM roles ORDER BY role_name")->fetchAll(PDO::FETCH_ASSOC);
+                $colleges = $this->db->query("SELECT college_id, college_name FROM colleges ORDER BY college_name")->fetchAll(PDO::FETCH_ASSOC);
+                $departments = $this->db->query("SELECT department_id, department_name, college_id FROM departments ORDER BY department_name")->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                // Original VPAA college-specific code
+                $vpaaStmt = $this->db->prepare("
+                SELECT c.college_id
+                FROM vpaa v
+                JOIN users u ON v.user_id = u.user_id
+                JOIN departments d ON u.department_id = d.department_id
+                JOIN colleges c ON d.college_id = c.college_id
+                WHERE v.user_id = :user_id
+            ");
+                $vpaaStmt->execute([':user_id' => $_SESSION['user_id']]);
+                $vpaa = $vpaaStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$vpaa) {
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => 'VPAA profile or college association not found'];
+                    header('Location: /admin/dashboard');
+                    exit;
+                }
+
+                $vpaaCollegeId = $vpaa['college_id'];
+
+                $userModel = new UserModel();
+                $users = $userModel->getUsersByCollege($vpaaCollegeId);
+                $roles = $this->db->query("SELECT role_id, role_name FROM roles ORDER BY role_name")->fetchAll(PDO::FETCH_ASSOC);
+                $colleges = $this->db->prepare("SELECT college_id, college_name FROM colleges WHERE college_id = :college_id ORDER BY college_name");
+                $colleges->execute([':college_id' => $vpaaCollegeId]);
+                $colleges = $colleges->fetchAll(PDO::FETCH_ASSOC);
+                $departments = $this->db->prepare("SELECT department_id, department_name FROM departments WHERE college_id = :college_id ORDER BY department_name");
+                $departments->execute([':college_id' => $vpaaCollegeId]);
+                $departments = $departments->fetchAll(PDO::FETCH_ASSOC);
             }
-
-            $vpaaCollegeId = $vpaa['college_id'];
-
-            if (!$this->authService->isLoggedIn() || $_SESSION['role_id'] !== 1) {
-                $_SESSION['flash'] = ['type' => 'error', 'message' => 'Unauthorized access'];
-                header('Location: /login');
-                exit;
-            }
-
-            $userModel = new UserModel();
-            $users = $userModel->getUsersByCollege($vpaaCollegeId);
-            $roles = $this->db->query("SELECT role_id, role_name FROM roles ORDER BY role_name")->fetchAll(PDO::FETCH_ASSOC);
-            $colleges = $this->db->prepare("SELECT college_id, college_name FROM colleges WHERE college_id = :college_id ORDER BY college_name");
-            $colleges->execute([':college_id' => $vpaaCollegeId]);
-            $colleges = $colleges->fetchAll(PDO::FETCH_ASSOC);
-            $departments = $this->db->prepare("SELECT department_id, department_name FROM departments WHERE college_id = :college_id ORDER BY department_name");
-            $departments->execute([':college_id' => $vpaaCollegeId]);
-            $departments = $departments->fetchAll(PDO::FETCH_ASSOC);
 
             $controller = $this;
             require_once __DIR__ . '/../views/admin/users.php';

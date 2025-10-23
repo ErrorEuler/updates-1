@@ -181,16 +181,20 @@ ob_start();
         <div class="bg-white rounded-xl shadow-md border border-gray-200 mb-6">
             <div class="p-6">
                 <div class="flex flex-col sm:flex-row gap-4">
+                    <!-- Search Input -->
                     <div class="flex-1">
                         <div class="relative">
                             <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                             </svg>
-                            <input type="text" id="searchUsers" placeholder="Search users..." class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+                            <input type="text" id="searchUsers" placeholder="Search by name, username, email, or employee ID..."
+                                class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 input-focus">
                         </div>
                     </div>
-                    <div class="flex gap-3">
-                        <select id="roleFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+
+                    <!-- Filters -->
+                    <div class="flex gap-3 flex-wrap">
+                        <select id="roleFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 input-focus min-w-[120px]">
                             <option value="">All Roles</option>
                             <?php foreach ($roles as $role): ?>
                                 <option value="<?php echo htmlspecialchars($role['role_name'], ENT_QUOTES, 'UTF-8'); ?>">
@@ -198,23 +202,34 @@ ob_start();
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <select id="collegeFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+
+                        <select id="collegeFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 input-focus min-w-[150px]">
                             <option value="">All Colleges</option>
                             <?php foreach ($colleges as $college): ?>
-                                <option value="<?php echo htmlspecialchars($college['college_name'], ENT_QUOTES, 'UTF-8'); ?>">
+                                <option value="<?php echo htmlspecialchars($college['college_name'], ENT_QUOTES, 'UTF-8'); ?>" data-college-id="<?php echo $college['college_id']; ?>">
                                     <?php echo htmlspecialchars($college['college_name'], ENT_QUOTES, 'UTF-8'); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <select id="departmentFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+
+                        <select id="departmentFilter" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 input-focus min-w-[150px]">
                             <option value="">All Departments</option>
                             <?php foreach ($departments as $dept): ?>
-                                <option value="<?php echo htmlspecialchars($dept['department_name'], ENT_QUOTES, 'UTF-8'); ?>">
+                                <option value="<?php echo htmlspecialchars($dept['department_name'], ENT_QUOTES, 'UTF-8'); ?>" data-college-id="<?php echo $dept['college_id'] ?? ''; ?>">
                                     <?php echo htmlspecialchars($dept['department_name'], ENT_QUOTES, 'UTF-8'); ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
+
+                        <button onclick="clearFilters()" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
+                            Clear
+                        </button>
                     </div>
+                </div>
+
+                <!-- Active Filters Display -->
+                <div id="activeFilters" class="mt-3 flex flex-wrap gap-2 hidden">
+                    <!-- Active filters will be shown here -->
                 </div>
             </div>
         </div>
@@ -423,6 +438,82 @@ ob_start();
 <script>
     // Fix the undefined _currentUserId error
     let _currentUserId = null;
+
+    // Initialize filters
+    function initializeFilters() {
+        console.log('Initializing filters with departments:', departmentData);
+
+        // College filter change event
+        document.getElementById('collegeFilter').addEventListener('change', function() {
+            updateDepartmentFilter(this.value);
+            filterTable();
+        });
+
+        // Department filter change event
+        document.getElementById('departmentFilter').addEventListener('change', function() {
+            filterTable();
+        });
+
+        // Role filter change event
+        document.getElementById('roleFilter').addEventListener('change', function() {
+            filterTable();
+        });
+
+        // Search input with debouncing
+        let searchTimeout;
+        document.getElementById('searchUsers').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                filterTable();
+            }, 300); // 300ms delay
+        });
+    }
+
+    // Update department filter based on selected college
+    function updateDepartmentFilter(selectedCollegeName) {
+        const departmentFilter = document.getElementById('departmentFilter');
+        const currentValue = departmentFilter.value;
+
+        // Clear all options except "All Departments"
+        departmentFilter.innerHTML = '<option value="">All Departments</option>';
+
+        if (selectedCollegeName) {
+            // Find college ID from selected college name
+            const collegeSelect = document.getElementById('collegeFilter');
+            const selectedOption = collegeSelect.options[collegeSelect.selectedIndex];
+            const collegeId = selectedOption.getAttribute('data-college-id');
+
+            // Filter departments by college_id
+            const filteredDepartments = departmentData.filter(dept =>
+                dept.college_id == collegeId
+            );
+
+            // Add filtered departments to dropdown
+            filteredDepartments.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept.department_name;
+                option.textContent = dept.department_name;
+                option.setAttribute('data-college-id', dept.college_id);
+                departmentFilter.appendChild(option);
+            });
+
+            // If current department doesn't belong to selected college, clear it
+            const currentDeptOption = departmentFilter.querySelector(`option[value="${currentValue}"]`);
+            if (!currentDeptOption || currentDeptOption.getAttribute('data-college-id') != collegeId) {
+                departmentFilter.value = "";
+            }
+        } else {
+            // Show all departments when no college is selected
+            departmentData.forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept.department_name;
+                option.textContent = dept.department_name;
+                option.setAttribute('data-college-id', dept.college_id);
+                departmentFilter.appendChild(option);
+            });
+        }
+    }
+
 
     // Global protection for currentUserId
     Object.defineProperty(window, 'currentUserId', {
@@ -1047,7 +1138,10 @@ ob_start();
             else if (tab === 'pending' && isPending) row.style.display = '';
         });
 
+        // Update URL without page reload
         window.history.pushState({}, '', `?tab=${tab}`);
+
+        // Re-apply filters for the new tab
         filterTable();
 
         // Debug after tab switch
@@ -1056,32 +1150,101 @@ ob_start();
         }, 100);
     }
 
+    // Enhanced filter function with better search
     function filterTable() {
         const searchTerm = document.getElementById('searchUsers').value.toLowerCase();
         const roleFilter = document.getElementById('roleFilter').value.toLowerCase();
         const collegeFilter = document.getElementById('collegeFilter').value.toLowerCase();
+        const departmentFilter = document.getElementById('departmentFilter').value.toLowerCase();
         const activeTab = document.querySelector('.tab-active')?.id.replace('tab-', '') || 'all';
 
         const rows = document.querySelectorAll('.user-row');
+        let visibleCount = 0;
+
         rows.forEach(row => {
             const cells = row.getElementsByTagName('td');
             if (cells.length > 0) {
-                const userName = cells[0].textContent.toLowerCase();
+                const userName = cells[0].querySelector('.text-gray-900')?.textContent.toLowerCase() || '';
                 const userEmail = cells[1].textContent.toLowerCase();
                 const userRole = cells[2].textContent.toLowerCase();
                 const userCollege = cells[3].textContent.toLowerCase();
-                const isVisible = (activeTab === 'all' ||
-                    (activeTab === 'active' && row.classList.contains('active-user')) ||
-                    (activeTab === 'inactive' && row.classList.contains('inactive-user')) ||
-                    (activeTab === 'pending' && row.classList.contains('pending-user')));
+                const userDepartment = cells[4].textContent.toLowerCase();
+                const userUsername = cells[0].querySelector('.text-gray-500')?.textContent.toLowerCase().replace('@', '') || '';
 
-                const matchesSearch = userName.includes(searchTerm) || userEmail.includes(searchTerm);
+                // Tab visibility
+                const isPending = row.classList.contains('pending-user');
+                const isActive = row.classList.contains('active-user');
+                const isInactive = row.classList.contains('inactive-user');
+
+                const isTabVisible = (activeTab === 'all' ||
+                    (activeTab === 'active' && isActive) ||
+                    (activeTab === 'inactive' && isInactive) ||
+                    (activeTab === 'pending' && isPending));
+
+                // Search across multiple fields
+                const matchesSearch = searchTerm === '' ||
+                    userName.includes(searchTerm) ||
+                    userEmail.includes(searchTerm) ||
+                    userUsername.includes(searchTerm) ||
+                    `${userName} ${userUsername} ${userEmail}`.includes(searchTerm);
+
                 const matchesRole = roleFilter === '' || userRole.includes(roleFilter);
                 const matchesCollege = collegeFilter === '' || userCollege.includes(collegeFilter);
+                const matchesDepartment = departmentFilter === '' || userDepartment.includes(departmentFilter);
 
-                row.style.display = isVisible && matchesSearch && matchesRole && matchesCollege ? '' : 'none';
+                const shouldShow = isTabVisible && matchesSearch && matchesRole && matchesCollege && matchesDepartment;
+
+                row.style.display = shouldShow ? '' : 'none';
+
+                if (shouldShow) visibleCount++;
             }
         });
+
+        // Update table title with result count
+        const tableTitle = document.getElementById('table-title');
+        const tabName = activeTab.charAt(0).toUpperCase() + activeTab.slice(1);
+        tableTitle.textContent = `${tabName} Users (${visibleCount} results)`;
+
+        // Show/hide no results message
+        showNoResultsMessage(visibleCount === 0);
+    }
+
+    // Show no results message
+    function showNoResultsMessage(show) {
+        let noResultsRow = document.getElementById('no-results-message');
+
+        if (show && !noResultsRow) {
+            noResultsRow = document.createElement('tr');
+            noResultsRow.id = 'no-results-message';
+            noResultsRow.innerHTML = `
+            <td colspan="7" class="px-6 py-8 text-center">
+                <div class="flex flex-col items-center justify-center text-gray-500">
+                    <svg class="w-12 h-12 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <p class="text-lg font-medium">No users found</p>
+                    <p class="text-sm">Try adjusting your search or filters</p>
+                </div>
+            </td>
+        `;
+            document.getElementById('usersTableBody').appendChild(noResultsRow);
+        } else if (!show && noResultsRow) {
+            noResultsRow.remove();
+        }
+    }
+
+    // Clear all filters
+    function clearFilters() {
+        document.getElementById('searchUsers').value = '';
+        document.getElementById('roleFilter').value = '';
+        document.getElementById('collegeFilter').value = '';
+        document.getElementById('departmentFilter').value = '';
+
+        // Reset department filter to show all options
+        updateDepartmentFilter('');
+
+        filterTable();
+        showToast('Filters cleared', 'info');
     }
 
     // Close modals when clicking outside
@@ -1191,10 +1354,15 @@ ob_start();
 
     // Call this in your DOMContentLoaded event to verify data
     document.addEventListener('DOMContentLoaded', () => {
-        debugUserData();
-        debugPendingUsers(); // Add this line
-        checkButtonVisibility(); // Add this line
+        // Initialize filters first
+        initializeFilters();
 
+        // Your existing debug functions
+        debugUserData();
+        debugPendingUsers();
+        checkButtonVisibility();
+
+        // Your existing row click handlers
         const rows = document.querySelectorAll('.user-row');
         rows.forEach(row => {
             row.addEventListener('click', (e) => {
@@ -1204,12 +1372,16 @@ ob_start();
             });
         });
 
+        // Your existing tab switching logic
         const defaultTab = '<?php echo isset($_GET['tab']) ? htmlspecialchars($_GET['tab'], ENT_QUOTES, 'UTF-8') : 'all'; ?>';
         if (['all', 'active', 'inactive', 'pending'].includes(defaultTab)) {
             switchTab(defaultTab);
         } else {
             switchTab('all');
         }
+
+        // Initial filter call from the update
+        filterTable();
     });
 </script>
 </div>
