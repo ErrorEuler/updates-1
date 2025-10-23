@@ -53,7 +53,7 @@ class ChairController
         }
     }
 
-
+   // Get department ID for the Chair
     public function getChairDepartment($chairId)
     {
         $stmt = $this->db->prepare("SELECT p.department_id 
@@ -65,6 +65,7 @@ class ChairController
         return $stmt->fetchColumn();
     }
 
+    // Dashboard view for Program Chair
     public function dashboard()
     {
         try {
@@ -303,6 +304,7 @@ class ChairController
         }
     }
 
+    // View and manage my schedule
     public function mySchedule()
     {
         try {
@@ -532,7 +534,8 @@ class ChairController
             exit;
         }
     }
-
+    
+    // Handle schedule download
     private function handleDownload($chairId)
     {
         $format = $_GET['format'] ?? 'pdf';
@@ -687,6 +690,7 @@ class ChairController
         }
     }
 
+    // get current semester of the school year
     private function getCurrentSemester()
     {
         try {
@@ -728,6 +732,7 @@ class ChairController
         }
     }
 
+    // Validate if a course belongs to a curriculum
     private function validateCurriculumCourse($curriculumId, $courseId)
     {
         $stmt = $this->db->prepare("SELECT 1 FROM curriculum_courses 
@@ -790,6 +795,7 @@ class ChairController
         }
     }
 
+    // Get sections for a department and semester
     private function getSections($departmentId, $semesterId)
     {
         try {
@@ -827,6 +833,7 @@ class ChairController
         }
     }
 
+    // getting courses for the department
     private function getCourses($departmentId)
     {
         $stmt = $this->db->prepare("
@@ -840,6 +847,7 @@ class ChairController
         return $courses;
     }
 
+    // getting courses for a curriculum
     private function getCurriculumCourses($curriculumId)
     {
         if (!$curriculumId) {
@@ -877,6 +885,7 @@ class ChairController
         }
     }
 
+    // deleting the entire schedule
     public function deleteAllSchedules()
     {
         header('Content-Type: application/json');
@@ -935,6 +944,7 @@ class ChairController
         exit;
     }
 
+    // deleting a single schedule
     private function deleteSingleSchedule($scheduleId, $departmentId)
     {
         try {
@@ -968,7 +978,8 @@ class ChairController
             return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
         }
     }
-
+    
+    // getting the college of the chairperson
     private function getChairCollege($userId)
     {
         try {
@@ -998,6 +1009,7 @@ class ChairController
         }
     }
 
+    // load common data for views
     private function loadCommonData($departmentId, $currentSemester, $collegeId)
     {
         $curriculumCourses = [];
@@ -1011,6 +1023,7 @@ class ChairController
         ];
     }
 
+    //loading schedules for the department and semester
     private function loadSchedules($departmentId, $currentSemester)
     {
         if (!$departmentId || !$currentSemester) {
@@ -1061,6 +1074,7 @@ class ChairController
         }
     }
 
+    // Verify schedule ownership before deletion
     private function verifyScheduleOwnership($scheduleId, $departmentId)
     {
         $stmt = $this->db->prepare("
@@ -1113,7 +1127,7 @@ class ChairController
 
         return array_unique($conflicts);
     }
-
+    // Check conflicts for a specific entity (section, faculty, room)
     private function checkEntityConflicts($entityField, $entityId, $dayOfWeek, $startTime, $endTime, $excludeScheduleId, $semesterId)
     {
         $conflicts = [];
@@ -1167,6 +1181,7 @@ class ChairController
         return $conflicts;
     }
 
+    // Get entity type string for conflict messages
     private function getEntityType($entityField)
     {
         switch ($entityField) {
@@ -1181,6 +1196,7 @@ class ChairController
         }
     }
 
+    // involves adding a schedule 
     private function handleAddSchedule($data, $departmentId, $currentSemester, $collegeId)
     {
         try {
@@ -1338,7 +1354,7 @@ class ChairController
             echo json_encode(['success' => false, 'message' => 'Error adding schedule: ' . $e->getMessage()]);
         }
     }
-
+    // handles updating a schedule
     private function handleUpdateSchedule($data, $departmentId, $currentSemester, $collegeId)
     {
         try {
@@ -1519,7 +1535,8 @@ class ChairController
         $stmt->execute([':schedule_id' => $scheduleId]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
-
+    
+    // main function to manage schedule
     public function manageSchedule()
     {
         $chairId = $_SESSION['user_id'] ?? null;
@@ -1583,7 +1600,7 @@ class ChairController
         define('IN_MANAGE_SCHEDULE', true);
         require_once __DIR__ . '/../views/chair/schedule_management.php';
     }
-
+     // AJAX handler for generating schedules
     public function generateSchedulesAjax()
     {
         header('Content-Type: application/json');
@@ -2019,6 +2036,7 @@ class ChairController
         exit;
     }
 
+    // generate schedules 
     private function generateSchedules($curriculumId, $yearLevels, $collegeId, $currentSemester, $classrooms, $faculty, $departmentId, $semesterType)
     {
         $schedules = [];
@@ -2597,7 +2615,7 @@ class ChairController
 
         return $conflicts;
     }
-
+    
     private function scheduleCourseSectionsInDifferentTimeSlots($course, $sectionsForCourse, $targetDays, $timeSlots, &$sectionScheduleTracker, $facultySpecializations, &$facultyAssignments, $currentSemester, $departmentId, &$schedules, &$onlineSlotTracker, &$roomAssignments, &$usedTimeSlots, $subjectType, $isLecture = false, $isLab = false, $forceF2F = false, $component = null, $facultyId = null)
     {
         $scheduledSections = [];
@@ -3102,13 +3120,6 @@ class ChairController
 
     private function isNSTPCourse($courseCode)
     {
-        // Pattern matches course codes containing NSTP, CWTS, ROTC, or LTS, with optional suffixes
-        // - ^: Start of string
-        // - (?:NSTP|CWTS|ROTC|LTS): Non-capturing group for base NSTP terms
-        // - \s*-?\s*: Optional space or hyphen
-        // - (?:[0-9]+|I{1,3})?: Optional number (e.g., 1, 2) or Roman numeral (I, II, III)
-        // - \s*: Optional trailing space
-        // - i: Case-insensitive
         $pattern = '/^(?:NSTP|CWTS|ROTC|LTS)\s*-?\s*(?:[0-9]+|I{1,3})?$/i';
         $isNSTP = preg_match($pattern, trim($courseCode));
         error_log("isNSTPCourse: Checking course_code '$courseCode' - " . ($isNSTP ? 'Matched as NSTP' : 'Not NSTP'));
@@ -5265,6 +5276,10 @@ class ChairController
         }
     }
 
+
+
+
+    // Classroom management interface, no more 
     public function classroom()
     {
         error_log("classroom: Starting classroom method");
