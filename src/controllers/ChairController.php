@@ -885,49 +885,56 @@ class ChairController
         }
     }
 
-    // deleting the entire schedule
     public function deleteAllSchedules()
     {
         header('Content-Type: application/json');
+
+        // Check if this is the correct endpoint being called
+        error_log("deleteAllSchedules: Starting deletion process");
+
         if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_POST['confirm']) || $_POST['confirm'] !== 'true') {
+            error_log("deleteAllSchedules: Invalid request - method: " . $_SERVER['REQUEST_METHOD'] . ", confirm: " . ($_POST['confirm'] ?? 'not set'));
             echo json_encode(['success' => false, 'message' => 'Invalid request or confirmation missing.']);
             exit;
         }
 
         $chairId = $_SESSION['user_id'] ?? null;
         $departmentId = $this->getChairDepartment($chairId);
+        $currentSemester = $this->getCurrentSemester();
 
-        if (!$departmentId) {
-            echo json_encode(['success' => false, 'message' => 'Could not determine department.']);
+        if (!$departmentId || !$currentSemester) {
+            error_log("deleteAllSchedules: Missing department or semester - dept: $departmentId, semester: " . ($currentSemester['semester_id'] ?? 'none'));
+            echo json_encode(['success' => false, 'message' => 'Could not determine department or semester.']);
             exit;
         }
 
         $transactionActive = false;
         try {
-            // Debug: Check if PDO connection is active
-            if (!$this->db || !$this->db->getAttribute(PDO::ATTR_CONNECTION_STATUS)) {
-                throw new Exception('Database connection is not active.');
-            }
+            // Debug info
+            error_log("deleteAllSchedules: Attempting to delete schedules for department $departmentId, semester " . $currentSemester['semester_id']);
 
             // Start transaction
             $this->db->beginTransaction();
             $transactionActive = true;
 
-            // Delete all schedules created today for the current department
-            $stmt = $this->db->prepare("DELETE FROM schedules WHERE department_id = :department_id AND DATE(created_at) = CURDATE()");
-            $stmt->execute([':department_id' => $departmentId]);
+            // DELETE ALL schedules for the current department and semester (not just today's)
+            $stmt = $this->db->prepare("DELETE FROM schedules WHERE department_id = :department_id AND semester_id = :semester_id");
+            $stmt->execute([
+                ':department_id' => $departmentId,
+                ':semester_id' => $currentSemester['semester_id']
+            ]);
+
             $deletedCount = $stmt->rowCount();
 
             // Commit transaction
             $this->db->commit();
             $transactionActive = false;
 
-            // Reset auto-increment outside transaction
-            $this->db->exec("ALTER TABLE schedules AUTO_INCREMENT = 1");
+            error_log("deleteAllSchedules: Successfully deleted $deletedCount schedules");
 
             echo json_encode([
                 'success' => true,
-                'message' => 'All schedules created today for department ' . $departmentId . ' deleted successfully.',
+                'message' => 'All schedules deleted successfully for current semester.',
                 'deleted_count' => $deletedCount
             ]);
         } catch (Exception $e) {
@@ -939,11 +946,31 @@ class ChairController
                     error_log('Failed to rollback transaction: ' . $rollbackException->getMessage());
                 }
             }
+            error_log("deleteAllSchedules: Error - " . $e->getMessage());
             echo json_encode(['success' => false, 'message' => 'Error deleting schedules: ' . $e->getMessage()]);
         }
         exit;
     }
 
+    private function verifyScheduleDeletion($departmentId, $semesterId)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT COUNT(*) as remaining_count FROM schedules WHERE department_id = :department_id AND semester_id = :semester_id");
+            $stmt->execute([
+                ':department_id' => $departmentId,
+                ':semester_id' => $semesterId
+            ]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            error_log("Schedule deletion verification: " . $result['remaining_count'] . " schedules remaining for department $departmentId, semester $semesterId");
+
+            return $result['remaining_count'] == 0;
+        } catch (Exception $e) {
+            error_log("Verification error: " . $e->getMessage());
+            return false;
+        }
+    }
+    
     // deleting a single schedule
     private function deleteSingleSchedule($scheduleId, $departmentId)
     {
@@ -1276,7 +1303,7 @@ class ChairController
         return null;
     }
 
-    
+
 
     // Get entity type string for conflict messages
     private function getEntityType($entityField)
@@ -1981,6 +2008,11 @@ class ChairController
                 }
                 break;
 
+            case 'get_schedule_count':
+                $result = $this->handleGetScheduleCount($currentSemester);
+                echo json_encode($result);
+                break;
+
             default:
                 error_log("generateSchedulesAjax: Invalid action: $action");
                 echo json_encode(['success' => false, 'message' => 'Invalid action']);
@@ -2504,6 +2536,88 @@ class ChairController
             return [];
         }
     }
+    // Add this method to your ChairController class
+    private function handleDeleteSchedules($currentSemester)
+    {
+        try {
+            $chairId = $_SESSION['user_id'];
+            $departmentId = $this->getChairDepartment($chairId);
+            $semesterId = $currentSemester['semester_id'];
+
+            error_log("handleDeleteSchedules: Deleting schedules for department $departmentId, semester $semesterId");
+
+            if (!$departmentId || !$semesterId) {
+                return [
+                    'success' => false,
+                    'message' => 'Could not determine department or semester'
+                ];
+            }
+
+            // Delete all schedules for this department and semester
+            $sql = "DELETE FROM schedules WHERE department_id = :department_id AND semester_id = :semester_id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':department_id' => $departmentId,
+                ':semester_id' => $semesterId
+            ]);
+
+            $deletedCount = $stmt->rowCount();
+            error_log("handleDeleteSchedules: Successfully deleted $deletedCount schedules");
+
+            return [
+                'success' => true,
+                'message' => "Successfully deleted $deletedCount schedules",
+                'deleted_count' => $deletedCount
+            ];
+        } catch (Exception $e) {
+            error_log("handleDeleteSchedules Error: " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Error deleting schedules: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    // Add this method for debugging
+    private function handleGetScheduleCount($currentSemester)
+    {
+        try {
+            $chairId = $_SESSION['user_id'];
+            $departmentId = $this->getChairDepartment($chairId);
+            $semesterId = $currentSemester['semester_id'];
+
+            $sql = "SELECT COUNT(*) as count FROM schedules WHERE department_id = :department_id AND semester_id = :semester_id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':department_id' => $departmentId,
+                ':semester_id' => $semesterId
+            ]);
+
+            $count = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+            // Also get actual schedules for debugging
+            $sql = "SELECT * FROM schedules WHERE department_id = :department_id AND semester_id = :semester_id LIMIT 10";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                ':department_id' => $departmentId,
+                ':semester_id' => $semesterId
+            ]);
+            $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return [
+                'success' => true,
+                'count' => $count,
+                'schedules' => $schedules
+            ];
+        } catch (Exception $e) {
+            error_log("handleGetScheduleCount Error: " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Error getting schedule count: ' . $e->getMessage()
+            ];
+        }
+    }
+
 
     // ============================================================================
     // NEW METHOD: Validate Schedule Integrity
@@ -5289,6 +5403,9 @@ class ChairController
             ];
         }
     }
+
+
+
 
 
 

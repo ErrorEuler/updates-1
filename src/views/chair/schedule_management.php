@@ -2296,55 +2296,45 @@ if ($userDepartmentId) {
                 });
             }
 
-            // New function to update view schedule tab
+            // Dynamic view schedule tab that shows ALL schedules
             function updateViewScheduleTab(schedules) {
                 const viewGrid = document.getElementById('timetableGrid');
                 if (!viewGrid) return;
 
                 viewGrid.innerHTML = '';
 
-                const timeSlots = [
-                    ['07:30', '08:30'],
-                    ['08:30', '10:00'],
-                    ['10:00', '11:00'],
-                    ['11:00', '12:30'],
-                    ['12:30', '13:30'],
-                    ['13:00', '14:30'],
-                    ['14:30', '15:30'],
-                    ['15:30', '17:00'],
-                    ['17:00', '18:00']
-                ];
-
+                // Generate time slots for view tab (can be different from manual tab)
+                const timeSlots = generateViewTimeSlots(schedules);
                 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-                timeSlots.forEach(time => {
-                    const duration = (new Date(`2000-01-01 ${time[1]}`) - new Date(`2000-01-01 ${time[0]}`)) / 1000;
-                    const rowSpan = duration / 7200;
-                    const minHeight = rowSpan * 80;
+                timeSlots.forEach(timeSlot => {
+                    const duration = (new Date(`2000-01-01 ${timeSlot.end}`) - new Date(`2000-01-01 ${timeSlot.start}`)) / 1000;
+                    const rowSpan = Math.max(1, duration / 1800); // 30-minute base
+                    const minHeight = Math.max(60, rowSpan * 40); // Minimum height
 
                     const row = document.createElement('div');
-                    row.className = `grid grid-cols-7 min-h-[${minHeight}px] hover:bg-gray-50 transition-colors duration-200`;
-                    row.style.gridRow = `span ${rowSpan}`;
+                    row.className = `grid grid-cols-7 hover:bg-gray-50 transition-colors duration-200`;
+                    row.style.minHeight = `${minHeight}px`;
 
                     // Time cell
                     const timeCell = document.createElement('div');
                     timeCell.className = 'px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 flex items-center sticky left-0 z-10';
-                    timeCell.setAttribute('rowspan', rowSpan);
                     timeCell.innerHTML = `
-            <span class="text-sm hidden sm:block">${formatTime(time[0])} - ${formatTime(time[1])}</span>
-            <span class="text-xs sm:hidden">${time[0].substring(0, 5)}-${time[1].substring(0, 5)}</span>
+            <span class="text-sm hidden sm:block">${formatTime(timeSlot.start)} - ${formatTime(timeSlot.end)}</span>
+            <span class="text-xs sm:hidden">${timeSlot.start}-${timeSlot.end}</span>
         `;
                     row.appendChild(timeCell);
 
                     // Day cells
                     days.forEach(day => {
                         const cell = document.createElement('div');
-                        cell.className = `px-1 py-1 border-r border-gray-200 last:border-r-0 min-h-[${minHeight}px] relative schedule-cell`;
+                        cell.className = `px-1 py-1 border-r border-gray-200 last:border-r-0 relative schedule-cell`;
+                        cell.style.minHeight = `${minHeight}px`;
                         cell.dataset.day = day;
-                        cell.dataset.startTime = time[0];
-                        cell.dataset.endTime = time[1];
+                        cell.dataset.startTime = timeSlot.start;
+                        cell.dataset.endTime = timeSlot.end;
 
-                        // Find schedules for this time slot
+                        // Find ALL schedules that occur during this time slot
                         const schedulesForSlot = schedules.filter(schedule => {
                             if (schedule.day_of_week !== day) return false;
 
@@ -2353,16 +2343,27 @@ if ($userDepartmentId) {
 
                             if (!scheduleStart || !scheduleEnd) return false;
 
-                            // Check if schedule starts in this exact time slot
-                            return scheduleStart === time[0] && scheduleEnd === time[1];
+                            // Check if schedule overlaps with this time slot
+                            const slotStart = timeSlot.start;
+                            const slotEnd = timeSlot.end;
+
+                            const scheduleOverlaps = (
+                                scheduleStart < slotEnd &&
+                                scheduleEnd > slotStart
+                            );
+
+                            return scheduleOverlaps;
                         });
 
                         if (schedulesForSlot.length > 0) {
                             const schedulesContainer = document.createElement('div');
-                            schedulesContainer.className = 'space-y-1';
+                            schedulesContainer.className = 'space-y-1 h-full';
 
                             schedulesForSlot.forEach(schedule => {
-                                const scheduleItem = createSafeScheduleItem(schedule);
+                                const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                                const isExactStart = (scheduleStart === timeSlot.start);
+
+                                const scheduleItem = createViewScheduleItem(schedule, isExactStart);
                                 schedulesContainer.appendChild(scheduleItem);
                             });
 
@@ -2375,7 +2376,6 @@ if ($userDepartmentId) {
                     viewGrid.appendChild(row);
                 });
             }
-
 
             function filterSchedules() {
                 const yearLevel = document.getElementById('filter-year').value;
@@ -2408,7 +2408,7 @@ if ($userDepartmentId) {
             }
 
 
-            // New function to update list view
+            // Enhanced list view that shows ALL schedules
             function updateListView(schedules) {
                 const listView = document.getElementById('list-view');
                 if (!listView) return;
@@ -2430,7 +2430,26 @@ if ($userDepartmentId) {
                     return;
                 }
 
-                schedules.forEach(schedule => {
+                // Sort schedules by day and time for better organization
+                const dayOrder = {
+                    Monday: 1,
+                    Tuesday: 2,
+                    Wednesday: 3,
+                    Thursday: 4,
+                    Friday: 5,
+                    Saturday: 6
+                };
+                const sortedSchedules = [...schedules].sort((a, b) => {
+                    const dayCompare = dayOrder[a.day_of_week] - dayOrder[b.day_of_week];
+                    if (dayCompare !== 0) return dayCompare;
+
+                    // Then sort by start time
+                    const aTime = a.start_time || '00:00';
+                    const bTime = b.start_time || '00:00';
+                    return aTime.localeCompare(bTime);
+                });
+
+                sortedSchedules.forEach(schedule => {
                     const row = document.createElement('tr');
                     row.className = 'hover:bg-gray-50 transition-colors duration-200 schedule-row';
                     row.dataset.scheduleId = schedule.schedule_id;
@@ -2453,7 +2472,7 @@ if ($userDepartmentId) {
             </td>
             <td class="px-4 py-3 text-sm text-gray-700">
                 ${schedule.start_time && schedule.end_time ? 
-                    `${formatTime(schedule.start_time.substring(0, 5))} - ${formatTime(schedule.end_time.substring(0, 5))}` : 
+                    `${schedule.start_time.substring(0, 5)} - ${schedule.end_time.substring(0, 5)}` : 
                     ''}
             </td>
             <td class="px-4 py-3 text-sm text-gray-700">
@@ -2594,7 +2613,7 @@ if ($userDepartmentId) {
 
                 // Update list view
                 updateListView(schedules);
-
+                updateListView(schedules);
                 // Update view schedule tab
                 updateViewScheduleTab(schedules);
             }
@@ -2931,6 +2950,318 @@ if ($userDepartmentId) {
                     });
                 }
             });
+
+            // Dynamic manual grid view that handles any time
+            function updateManualGridView(schedules) {
+                const manualGrid = document.getElementById("schedule-grid");
+                if (!manualGrid) return;
+
+                manualGrid.innerHTML = "";
+
+                // Generate dynamic time slots based on ALL schedule times
+                const timeSlots = generateDynamicTimeSlots(schedules);
+                const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+                console.log("Generated time slots:", timeSlots);
+
+                timeSlots.forEach(timeSlot => {
+                    const row = document.createElement('div');
+                    row.className = `grid grid-cols-7 min-h-[80px] hover:bg-gray-50 transition-colors duration-200`;
+
+                    // Time column
+                    const timeCell = document.createElement('div');
+                    timeCell.className = 'px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 sticky left-0 z-10 flex items-start';
+                    timeCell.innerHTML = `
+            <span class="text-sm hidden sm:block">${formatTime(timeSlot.start)} - ${formatTime(timeSlot.end)}</span>
+            <span class="text-xs sm:hidden">${timeSlot.start}-${timeSlot.end}</span>
+        `;
+                    row.appendChild(timeCell);
+
+                    // Day columns
+                    days.forEach(day => {
+                        const cell = document.createElement('div');
+                        cell.className = 'px-1 py-1 border-r border-gray-200 last:border-r-0 relative drop-zone min-h-[80px]';
+                        cell.dataset.day = day;
+                        cell.dataset.startTime = timeSlot.start;
+                        cell.dataset.endTime = timeSlot.end;
+
+                        // Find schedules that start EXACTLY in this time slot
+                        const schedulesForSlot = schedules.filter(schedule => {
+                            if (schedule.day_of_week !== day) return false;
+
+                            const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                            return scheduleStart === timeSlot.start;
+                        });
+
+                        if (schedulesForSlot.length > 0) {
+                            const schedulesContainer = document.createElement('div');
+                            schedulesContainer.className = 'space-y-1 h-full';
+
+                            schedulesForSlot.forEach(schedule => {
+                                const scheduleCard = createFlexibleScheduleCard(schedule);
+                                schedulesContainer.appendChild(scheduleCard);
+                            });
+
+                            cell.appendChild(schedulesContainer);
+                        } else {
+                            // Check if this cell is occupied by a continuing schedule
+                            const hasContinuingSchedule = schedules.some(schedule => {
+                                if (schedule.day_of_week !== day) return false;
+
+                                const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                                const scheduleEnd = schedule.end_time ? schedule.end_time.substring(0, 5) : '';
+
+                                if (!scheduleStart || !scheduleEnd) return false;
+
+                                // Check if schedule spans through this time slot but doesn't start here
+                                return (scheduleStart < timeSlot.start && scheduleEnd > timeSlot.start);
+                            });
+
+                            if (!hasContinuingSchedule) {
+                                // Only show add button if cell is completely empty
+                                const addButton = document.createElement('button');
+                                addButton.innerHTML = '<i class="fas fa-plus text-sm"></i>';
+                                addButton.className = 'w-full h-full text-gray-400 hover:text-gray-600 hover:bg-yellow-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-yellow-400 transition-all duration-200 no-print flex items-center justify-center p-2';
+                                addButton.onclick = () => openAddModalForSlot(day, timeSlot.start, timeSlot.end);
+                                cell.appendChild(addButton);
+                            }
+                        }
+
+                        row.appendChild(cell);
+                    });
+
+                    manualGrid.appendChild(row);
+                });
+
+                initializeDragAndDrop();
+            }
+
+            // Generate dynamic time slots based on actual schedule times
+            function generateDynamicTimeSlots(schedules) {
+                const allTimes = new Set();
+
+                // Add default time range
+                const startHour = 7,
+                    endHour = 21; // 7 AM to 9 PM
+                for (let hour = startHour; hour <= endHour; hour++) {
+                    for (let minute = 0; minute < 60; minute += 30) { // 30-minute intervals
+                        if (hour === endHour && minute > 0) break;
+                        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                        allTimes.add(timeString);
+                    }
+                }
+
+                // Add all schedule start and end times
+                schedules.forEach(schedule => {
+                    if (schedule.start_time) {
+                        const startTime = schedule.start_time.substring(0, 5);
+                        allTimes.add(startTime);
+                    }
+                    if (schedule.end_time) {
+                        const endTime = schedule.end_time.substring(0, 5);
+                        allTimes.add(endTime);
+                    }
+                });
+
+                // Convert to array and sort
+                const sortedTimes = Array.from(allTimes).sort((a, b) => {
+                    const [aHours, aMinutes] = a.split(':').map(Number);
+                    const [bHours, bMinutes] = b.split(':').map(Number);
+                    return (aHours * 60 + aMinutes) - (bHours * 60 + bMinutes);
+                });
+
+                // Create time slots
+                const timeSlots = [];
+                for (let i = 0; i < sortedTimes.length - 1; i++) {
+                    timeSlots.push({
+                        start: sortedTimes[i],
+                        end: sortedTimes[i + 1]
+                    });
+                }
+
+                return timeSlots;
+            }
+
+            // Flexible schedule card that can be edited/moved regardless of time
+            function createFlexibleScheduleCard(schedule) {
+                const card = document.createElement('div');
+
+                const colors = [
+                    'bg-blue-100 border-blue-300 text-blue-800',
+                    'bg-green-100 border-green-300 text-green-800',
+                    'bg-purple-100 border-purple-300 text-purple-800',
+                    'bg-orange-100 border-orange-300 text-orange-800',
+                    'bg-pink-100 border-pink-300 text-pink-800'
+                ];
+
+                const colorIndex = schedule.schedule_id ?
+                    (parseInt(schedule.schedule_id) % colors.length) :
+                    Math.floor(Math.random() * colors.length);
+                const colorClass = colors[colorIndex];
+
+                card.className = `schedule-card ${colorClass} p-2 rounded-lg border-l-4 draggable cursor-move text-xs w-full`;
+                card.draggable = true;
+                card.dataset.scheduleId = schedule.schedule_id || '';
+                card.dataset.yearLevel = schedule.year_level || '';
+                card.dataset.sectionName = schedule.section_name || '';
+                card.dataset.roomName = schedule.room_name || 'Online';
+                card.dataset.startTime = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                card.dataset.endTime = schedule.end_time ? schedule.end_time.substring(0, 5) : '';
+
+                card.innerHTML = `
+        <div class="flex justify-between items-start mb-1">
+            <div class="font-semibold truncate flex-1">
+                ${schedule.course_code || ''}
+            </div>
+            <div class="flex space-x-1 flex-shrink-0 ml-1">
+                <button onclick="event.stopPropagation(); editSchedule('${schedule.schedule_id || ''}')" class="text-yellow-600 hover:text-yellow-700 no-print">
+                    <i class="fas fa-edit text-xs"></i>
+                </button>
+                <button onclick="event.stopPropagation(); openDeleteSingleModal(
+                    '${schedule.schedule_id || ''}', 
+                    '${schedule.course_code || ''}', 
+                    '${schedule.section_name || ''}', 
+                    '${schedule.day_of_week || ''}', 
+                    '${schedule.start_time ? formatTime(schedule.start_time.substring(0, 5)) : ''}', 
+                    '${schedule.end_time ? formatTime(schedule.end_time.substring(0, 5)) : ''}'
+                )" class="text-red-600 hover:text-red-700 no-print">
+                    <i class="fas fa-trash text-xs"></i>
+                </button>
+            </div>
+        </div>
+        <div class="opacity-90 truncate">
+            ${schedule.section_name || ''}
+        </div>
+        <div class="opacity-75 truncate">
+            ${schedule.faculty_name || ''}
+        </div>
+        <div class="opacity-75 truncate">
+            ${schedule.room_name || 'Online'}
+        </div>
+        <div class="font-medium mt-1 text-xs">
+            ${schedule.start_time && schedule.end_time ? 
+                `${schedule.start_time.substring(0, 5)} - ${schedule.end_time.substring(0, 5)}` : 
+                ''}
+        </div>
+    `;
+
+                return card;
+            }
+
+            // Generate time slots optimized for view display
+            function generateViewTimeSlots(schedules) {
+                const allTimes = new Set();
+
+                // Base time slots every 30 minutes from 7:00 to 21:00
+                for (let hour = 7; hour <= 21; hour++) {
+                    for (let minute = 0; minute < 60; minute += 30) {
+                        if (hour === 21 && minute > 0) break;
+                        const timeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                        allTimes.add(timeString);
+                    }
+                }
+
+                // Add schedule times to ensure they're included
+                schedules.forEach(schedule => {
+                    if (schedule.start_time) allTimes.add(schedule.start_time.substring(0, 5));
+                    if (schedule.end_time) allTimes.add(schedule.end_time.substring(0, 5));
+                });
+
+                const sortedTimes = Array.from(allTimes).sort();
+                const timeSlots = [];
+
+                for (let i = 0; i < sortedTimes.length - 1; i++) {
+                    timeSlots.push({
+                        start: sortedTimes[i],
+                        end: sortedTimes[i + 1]
+                    });
+                }
+
+                return timeSlots;
+            }
+            // Schedule item for view tab
+            function createViewScheduleItem(schedule, isExactStart = true) {
+                const item = document.createElement('div');
+
+                const colors = [
+                    'bg-blue-100 border-blue-300 text-blue-800',
+                    'bg-green-100 border-green-300 text-green-800',
+                    'bg-purple-100 border-purple-300 text-purple-800',
+                    'bg-orange-100 border-orange-300 text-orange-800',
+                    'bg-pink-100 border-pink-300 text-pink-800'
+                ];
+
+                const colorIndex = schedule.schedule_id ?
+                    (parseInt(schedule.schedule_id) % colors.length) :
+                    Math.floor(Math.random() * colors.length);
+                const colorClass = colors[colorIndex];
+
+                // Apply reduced opacity for continuation schedules
+                const opacityClass = isExactStart ? '' : 'opacity-70';
+
+                item.className = `schedule-card ${colorClass} ${opacityClass} p-2 rounded-lg border-l-4 mb-1 schedule-item text-xs`;
+                item.dataset.yearLevel = schedule.year_level || '';
+                item.dataset.sectionName = schedule.section_name || '';
+                item.dataset.roomName = schedule.room_name || 'Online';
+
+                item.innerHTML = `
+        <div class="font-semibold truncate mb-1">
+            ${schedule.course_code || ''}
+            ${!isExactStart ? '<span class="text-gray-500 text-xs">(cont.)</span>' : ''}
+        </div>
+        <div class="opacity-90 truncate mb-1">
+            ${schedule.section_name || ''}
+        </div>
+        <div class="opacity-75 truncate">
+            ${schedule.faculty_name || ''}
+        </div>
+        <div class="opacity-75 truncate">
+            ${schedule.room_name || 'Online'}
+        </div>
+        ${isExactStart ? `
+        <div class="font-medium mt-1 text-xs">
+            ${schedule.start_time && schedule.end_time ? 
+                `${schedule.start_time.substring(0, 5)} - ${schedule.end_time.substring(0, 5)}` : 
+                ''}
+        </div>
+        ` : ''}
+    `;
+
+                return item;
+            }
+
+            // Debug function to check database state
+            function verifyDeletion() {
+                console.log("=== VERIFYING DELETION ===");
+                console.log("Frontend schedule count:", window.scheduleData.length);
+
+                // Make an API call to check backend state
+                fetch("/chair/generate-schedules", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded"
+                        },
+                        body: new URLSearchParams({
+                            action: "get_schedule_count",
+                            semester_id: window.currentSemester?.semester_id || "",
+                            department_id: window.departmentId || ""
+                        }),
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("Backend schedule count:", data.count);
+                        console.log("Backend schedules sample:", data.schedules || []);
+
+                        if (data.count > 0) {
+                            console.warn("WARNING: Schedules still exist in database after deletion!");
+                        } else {
+                            console.log("SUCCESS: Database is properly cleared");
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Verification error:", error);
+                    });
+            }
         </script>
 
         <!-- Include external JavaScript files -->

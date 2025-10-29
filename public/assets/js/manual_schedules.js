@@ -149,33 +149,52 @@ function handleDragLeave(e) {
   }
 }
 
+// Enhanced calculateEndTime for any time input
 function calculateEndTime(startTime, durationMinutes = 60) {
-  const [hours, minutes] = startTime.split(":").map(Number);
+  // Handle various time formats
+  let formattedStartTime = startTime;
+  if (!formattedStartTime.includes(':')) {
+    // If it's just numbers like "730", convert to "07:30"
+    const timeStr = formattedStartTime.padStart(4, '0');
+    formattedStartTime = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4);
+  }
+
+  const [hours, minutes] = formattedStartTime.split(':').map(Number);
   const startDate = new Date(2000, 0, 1, hours, minutes);
   const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+
   return endDate.toTimeString().substring(0, 5);
 }
 
+// Enhanced drop handler for flexible time system
 function handleDrop(e) {
   e.preventDefault();
   const dropZone = e.target.closest(".drop-zone");
   if (!dropZone || !draggedElement) return;
+
   dropZone.classList.remove("drag-over");
   const scheduleId = e.dataTransfer.getData("text/plain");
   const newDay = dropZone.dataset.day;
   const newStartTime = dropZone.dataset.startTime;
-  const newEndTime = dropZone.dataset.endTime;
-  console.log("Dropping schedule:", scheduleId, "to", newDay, newStartTime, newEndTime);
+
+  console.log("Dropping schedule:", scheduleId, "to", newDay, newStartTime);
 
   const scheduleIndex = window.scheduleData.findIndex(
     (s) => s.schedule_id == scheduleId
   );
+
   if (scheduleIndex !== -1) {
     const originalSchedule = window.scheduleData[scheduleIndex];
-    const originalStart = new Date(`2000-01-01 ${originalSchedule.start_time.substring(0, 5)}`);
-    const originalEnd = new Date(`2000-01-01 ${originalSchedule.end_time.substring(0, 5)}`);
+
+    // Calculate new end time based on original duration
+    const originalStart = new Date(`2000-01-01T${originalSchedule.start_time}`);
+    const originalEnd = new Date(`2000-01-01T${originalSchedule.end_time}`);
     const durationMinutes = (originalEnd - originalStart) / (1000 * 60);
-    const formattedEndTime = calculateEndTime(newStartTime, durationMinutes);
+
+    // Calculate new end time
+    const newStart = new Date(`2000-01-01T${newStartTime}:00`);
+    const newEnd = new Date(newStart.getTime() + durationMinutes * 60000);
+    const formattedEndTime = newEnd.toTimeString().substring(0, 8);
 
     console.log("Time update details:", {
       originalDuration: durationMinutes + " minutes",
@@ -183,12 +202,14 @@ function handleDrop(e) {
       newEnd: formattedEndTime,
     });
 
+    // Update the schedule
     window.scheduleData[scheduleIndex].day_of_week = newDay;
     window.scheduleData[scheduleIndex].start_time = newStartTime + ":00";
-    window.scheduleData[scheduleIndex].end_time = formattedEndTime + ":00";
+    window.scheduleData[scheduleIndex].end_time = formattedEndTime;
 
+    // Refresh display
     safeUpdateScheduleDisplay(window.scheduleData);
-    showNotification(`Schedule moved to ${newDay} ${newStartTime}-${formattedEndTime}`, "success");
+    showNotification(`Schedule moved to ${newDay} ${newStartTime}-${formattedEndTime.substring(0, 5)}`, "success");
   }
 }
 
@@ -256,31 +277,50 @@ function confirmDeleteAllSchedules() {
     deleteButton.disabled = true;
   }
 
-  // Use the existing 'delete_schedules' action instead of 'delete_all_schedules'
+  // Debug: Log what we're sending
+  const requestData = {
+    action: "delete_schedules",
+    confirm: "true",
+    semester_id: window.currentSemester?.semester_id || "",
+    department_id: window.departmentId || ""
+  };
+
+  console.log("Sending delete request:", requestData);
+
   fetch("/chair/generate-schedules", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      action: "delete_schedules", // Use the existing action name
-      confirm: "true",
-      semester_id: window.currentSemester?.semester_id || ""
-    }),
+    body: new URLSearchParams(requestData),
   })
     .then((response) => {
       console.log("Delete all response status:", response.status);
+      console.log("Delete all response headers:", response.headers);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       return response.json();
     })
     .then((data) => {
       console.log("Delete all response data:", data);
+
       if (data.success) {
-        showNotification("All schedules deleted successfully!", "success");
+        showNotification("All schedules deleted successfully! Deleted " + (data.deleted_count || 0) + " schedules.", "success");
+
+        // Clear frontend data
         window.scheduleData = [];
+
+        // Force refresh all views
         safeUpdateScheduleDisplay([]);
         buildCurrentSemesterCourseMappings();
 
+        // Hide generation results
         const generationResults = document.getElementById("generation-results");
         if (generationResults) generationResults.classList.add("hidden");
+
+        // Force a page reload after successful deletion to ensure clean state
+        setTimeout(() => {
+          console.log("Reloading page to ensure clean state...");
+          location.reload();
+        }, 1000);
+
       } else {
         showNotification("Error: " + (data.message || "Failed to delete all schedules"), "error");
       }
@@ -295,6 +335,7 @@ function confirmDeleteAllSchedules() {
         deleteButton.disabled = false;
       }
       closeDeleteModal();
+      closeDeleteAllModal();
     });
 }
 
@@ -409,9 +450,19 @@ function deleteSchedule(scheduleId) {
   }
 }
 
+// Enhanced time formatting that handles any time input
 function formatTime(timeString) {
   if (!timeString) return "";
-  const [hours, minutes] = timeString.split(":");
+
+  // Handle various time formats
+  let formattedTime = timeString;
+  if (!formattedTime.includes(':')) {
+    // If it's just numbers like "730", convert to "07:30"
+    const timeStr = formattedTime.padStart(4, '0');
+    formattedTime = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4);
+  }
+
+  const [hours, minutes] = formattedTime.split(':');
   const date = new Date(2000, 0, 1, hours, minutes);
   return date.toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -1311,20 +1362,20 @@ function filterSchedulesManual() {
 
 // Helper function to filter list view
 function updateListViewWithFilters(yearLevel, section, room) {
-    const rows = document.querySelectorAll('#list-view .schedule-row');
-    
-    rows.forEach(row => {
-        const scheduleId = row.dataset.scheduleId;
-        const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
-        
-        if (schedule) {
-            const matchesYear = !yearLevel || schedule.year_level === yearLevel;
-            const matchesSection = !section || schedule.section_name === section;
-            const matchesRoom = !room || (schedule.room_name || 'Online') === room;
-            
-            row.style.display = (matchesYear && matchesSection && matchesRoom) ? '' : 'none';
-        }
-    });
+  const rows = document.querySelectorAll('#list-view .schedule-row');
+
+  rows.forEach(row => {
+    const scheduleId = row.dataset.scheduleId;
+    const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
+
+    if (schedule) {
+      const matchesYear = !yearLevel || schedule.year_level === yearLevel;
+      const matchesSection = !section || schedule.section_name === section;
+      const matchesRoom = !room || (schedule.room_name || 'Online') === room;
+
+      row.style.display = (matchesYear && matchesSection && matchesRoom) ? '' : 'none';
+    }
+  });
 }
 
 function clearFiltersManual() {
@@ -1344,6 +1395,13 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log("Manual schedules JS loaded");
   console.log("Current semester:", window.currentSemester);
   console.log("Schedule data count:", window.scheduleData?.length || 0);
+
+  // Force clear any corrupted schedule data on load if needed
+  if (window.scheduleData && window.scheduleData.length > 100) { // arbitrary high number
+    console.log("Cleaning up potentially corrupted schedule data on load...");
+    // You can optionally clear here if needed, but be careful
+    // window.scheduleData = [];
+  }
 
   buildCurrentSemesterCourseMappings();
   initializeDragAndDrop();
