@@ -7,108 +7,104 @@ const DEBOUNCE_DELAY = 300;
 
 // Real-time field validator
 // Enhanced real-time field validator with better messages
+// Enhanced real-time conflict detection
 function validateFieldRealTime(fieldType, value, relatedFields = {}) {
   clearTimeout(validationTimeout);
   validationTimeout = setTimeout(() => {
-    const formData = new FormData(document.getElementById("schedule-form"));
-    const partialData = {
+    const form = document.getElementById("schedule-form");
+    if (!form) return;
+
+    const formData = new FormData(form);
+    const currentScheduleId = formData.get("schedule_id") || '';
+
+    // Build comprehensive validation data
+    const validationData = {
       action: "validate_partial",
       semester_id: window.currentSemester?.semester_id,
+      department_id: window.departmentId,
       [fieldType]: value,
-      ...relatedFields,
-      course_code: formData.get("course_code")?.trim() || "",
-      section_name: formData.get("section_name")?.trim() || "",
-      faculty_name: formData.get("faculty_name")?.trim() || "",
-      room_name: formData.get("room_name")?.trim() || "Online",
-      day_of_week: formData.get("day_of_week") || "",
-      start_time: formData.get("start-time") || "",
-      end_time: formData.get("end-time") || ""
+      schedule_id: currentScheduleId, // Important for update scenarios
+      ...relatedFields
     };
-    console.log(`Validating ${fieldType}:`, partialData);
+
+    // Add all relevant fields for comprehensive conflict checking
+    const relevantFields = [
+      'course_code', 'section_name', 'faculty_name', 'room_name',
+      'day_of_week', 'start_time', 'end_time'
+    ];
+
+    relevantFields.forEach(field => {
+      const fieldValue = formData.get(field)?.trim() || '';
+      if (fieldValue) {
+        validationData[field] = fieldValue;
+      }
+    });
+
+    console.log(`Validating ${fieldType}:`, validationData);
 
     fetch("/chair/generate-schedules", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(partialData)
+      body: new URLSearchParams(validationData)
     })
       .then(response => response.json())
       .then(result => {
         console.log("Validation response:", result);
-
-        // Clear previous warnings for this field type
-        const fieldId = fieldType.replace("_", "-");
-        removeConflictWarning(fieldId);
-
-        if (result.success && result.conflicts?.length > 0) {
-          result.conflicts.forEach(conflict => {
-            let fieldId, message, warningLevel = 'error';
-
-            switch (true) {
-              case conflict.includes("Section"):
-                fieldId = "section-name";
-                message = conflict.includes("schedule") ?
-                  `👥 ${conflict}` :
-                  "👥 This section has scheduling conflicts. Please check the section's existing schedules.";
-                break;
-              case conflict.includes("Faculty"):
-                fieldId = "faculty-name";
-                message = conflict.includes("schedule") ?
-                  `👨‍🏫 ${conflict}` :
-                  "👨‍🏫 Faculty member has overlapping schedules. Consider adjusting time or day.";
-                warningLevel = 'error';
-                break;
-              case conflict.includes("Room"):
-                fieldId = "room-name";
-                message = conflict.includes("schedule") ?
-                  `🏫 ${conflict}` :
-                  "🏫 Room is already occupied during this time. Please select another room or time slot.";
-                warningLevel = 'error';
-                break;
-              case conflict.includes("time"):
-                fieldId = "start-time";
-                const endFieldId = "end-time";
-                const timeMessage = conflict.includes("schedule") ?
-                  `⏰ ${conflict}` :
-                  "⏰ Time conflict detected. This time slot overlaps with existing schedules.";
-
-                displayConflictWarning(fieldId, timeMessage, 'error');
-                displayConflictWarning(endFieldId, timeMessage, 'error');
-                break;
-              default:
-                fieldId = fieldType.replace("_", "-");
-                message = result.message || "⚠️ Validation issue detected. Please check your input.";
-                warningLevel = 'warning';
-            }
-
-            if (fieldId && !conflict.includes("time")) {
-              displayConflictWarning(fieldId, message, warningLevel);
-            }
-          });
-        } else if (!result.success && result.message) {
-          displayConflictWarning(fieldType.replace("_", "-"),
-            `⚠️ ${result.message}`,
-            'warning'
-          );
-        } else {
-          // No conflicts - show success message for important fields
-          const fieldId = fieldType.replace("_", "-");
-          if (['faculty-name', 'room-name', 'section-name'].includes(fieldId) && value) {
-            displayConflictWarning(fieldId,
-              "✅ No conflicts detected for this selection.",
-              'success'
-            );
-          }
-        }
+        handleValidationResponse(fieldType, result, value);
       })
       .catch(error => {
         console.error("Real-time validation error:", error);
-        const fieldId = fieldType.replace("_", "-");
-        displayConflictWarning(fieldId,
-          "🔧 Validation service temporarily unavailable. Please check your inputs manually.",
+        displayConflictWarning(fieldType.replace("_", "-"),
+          "🔧 Validation service temporarily unavailable",
           'warning'
         );
       });
   }, DEBOUNCE_DELAY);
+}
+
+// Enhanced validation response handler
+function handleValidationResponse(fieldType, result, originalValue) {
+  const fieldId = fieldType.replace("_", "-");
+
+  // Clear previous warnings
+  removeConflictWarning(fieldId);
+
+  if (!result.success) {
+    displayConflictWarning(fieldId, result.message || "Validation failed", 'error');
+    return;
+  }
+
+  if (result.conflicts && result.conflicts.length > 0) {
+    const conflictMessages = result.conflicts.map(conflict => {
+      // Format conflict messages for better readability
+      if (conflict.includes('Section')) {
+        return `👥 ${conflict}`;
+      } else if (conflict.includes('Faculty')) {
+        return `👨‍🏫 ${conflict}`;
+      } else if (conflict.includes('Room')) {
+        return `🏫 ${conflict}`;
+      } else if (conflict.includes('time')) {
+        return `⏰ ${conflict}`;
+      }
+      return `⚠️ ${conflict}`;
+    });
+
+    const uniqueMessages = [...new Set(conflictMessages)];
+    const displayMessage = uniqueMessages.join('\n');
+
+    displayConflictWarning(fieldId, displayMessage, 'error');
+
+    // Also highlight related fields if needed
+    if (fieldType === 'start_time' || fieldType === 'end_time') {
+      const otherTimeField = fieldType === 'start_time' ? 'end-time' : 'start-time';
+      displayConflictWarning(otherTimeField, "Time conflict detected", 'error');
+    }
+  } else {
+    // No conflicts - show success for important fields
+    if (['faculty_name', 'room_name', 'section_name'].includes(fieldType) && originalValue) {
+      displayConflictWarning(fieldId, "✅ No conflicts detected", 'success');
+    }
+  }
 }
 
 function handleDragStart(e) {
@@ -616,9 +612,11 @@ function updateDayField() {
   if (daySelect && modalDay) modalDay.value = daySelect.value;
 }
 
+// Enhanced form submission with comprehensive validation
 function handleScheduleSubmit(e) {
   e.preventDefault();
-  console.log("Submitting schedule form...");
+  console.log("Submitting schedule form with enhanced validation...");
+
   resetConflictStyles();
 
   const currentSemesterId = window.currentSemester?.semester_id;
@@ -641,149 +639,182 @@ function handleScheduleSubmit(e) {
     end_time: formData.get("end_time"),
     schedule_type: formData.get("schedule_type") || "f2f",
     semester_id: currentSemesterId,
+    department_id: window.departmentId
   };
-  console.log("Form data:", data);
 
-  // Check for course conflicts
-  const courseConflict = validateCourseConflict(data.course_code, data.course_name, currentEditingId);
-  if (courseConflict) {
-    highlightConflictField("course-code", courseConflict.message);
-    highlightConflictField("course-name", courseConflict.message);
-  }
+  console.log("Enhanced form data:", data);
 
-
-  const validatePromises = [
-    validateFieldRealTime("section_name", data.section_name),
-    validateFieldRealTime("faculty_name", data.faculty_name, {
-      day_of_week: data.day_of_week,
-      start_time: data.start_time,
-      end_time: data.end_time,
-    }),
-    validateFieldRealTime("room_name", data.room_name, {
-      day_of_week: data.day_of_week,
-      start_time: data.start_time,
-      end_time: data.end_time,
-    }),
-    validateFieldRealTime("day_of_week", data.day_of_week, {
-      faculty_name: data.faculty_name,
-      room_name: data.room_name,
-      start_time: data.start_time,
-      end_time: data.end_time,
-    }),
-    validateFieldRealTime("start_time", data.start_time, {
-      day_of_week: data.day_of_week,
-      faculty_name: data.faculty_name,
-      room_name: data.room_name,
-    }),
-    validateFieldRealTime("end_time", data.end_time, {
-      day_of_week: data.day_of_week,
-      start_time: data.start_time,
-      faculty_name: data.faculty_name,
-      room_name: data.room_name,
-    }),
+  // Validate required fields
+  const requiredFields = [
+    { field: 'course_code', name: 'Course Code' },
+    { field: 'course_name', name: 'Course Name' },
+    { field: 'section_name', name: 'Section' },
+    { field: 'faculty_name', name: 'Faculty' },
+    { field: 'day_of_week', name: 'Day Pattern' }
   ];
 
-  Promise.all(validatePromises).then(() => {
-    let hasConflicts = document.querySelectorAll(".border-red-500").length > 0;
-    if (hasConflicts) {
-      showNotification("Please resolve the highlighted conflicts before submitting.", "error");
-      return;
+  let hasEmptyFields = false;
+  requiredFields.forEach(({ field, name }) => {
+    if (!data[field]) {
+      highlightConflictField(field.replace('_', '-'), `${name} is required`);
+      hasEmptyFields = true;
     }
+  });
 
-    let hasEmptyFields = false;
-    const requiredFields = [
-      { id: "course-code", value: data.course_code, name: "Course Code" },
-      { id: "course-name", value: data.course_name, name: "Course Name" },
-      { id: "section-name", value: data.section_name, name: "Section" },
-      { id: "faculty-name", value: data.faculty_name, name: "Faculty" },
-      { id: "day-select", value: data.day_of_week, name: "Day Pattern" },
-    ];
+  if (hasEmptyFields) {
+    showNotification("Please fill out all required fields.", "error");
+    return;
+  }
 
-    requiredFields.forEach((field) => {
-      if (!field.value) {
-        highlightConflictField(field.id, field.name + " is required");
-        hasEmptyFields = true;
+  // Validate time logic
+  if (data.start_time >= data.end_time) {
+    highlightConflictField("start-time", "Start time must be before end time");
+    highlightConflictField("end-time", "End time must be after start time");
+    showNotification("End time must be after start time.", "error");
+    return;
+  }
+
+  // Check for conflicts before submission
+  performFinalConflictCheck(data)
+    .then(hasConflicts => {
+      if (hasConflicts) {
+        showNotification("Please resolve all conflicts before submitting.", "error");
+        return;
       }
+      submitScheduleData(data);
+    })
+    .catch(error => {
+      console.error("Final conflict check error:", error);
+      showNotification("Error checking conflicts: " + error.message, "error");
     });
+}
 
-    if (hasEmptyFields) {
-      showNotification("Please fill out all required fields.", "error");
-      return;
-    }
-
-    if (data.start_time >= data.end_time) {
-      highlightConflictField("start-time", "Start time must be before end time");
-      highlightConflictField("end-time", "End time must be after start time");
-      showNotification("End time must be after start time.", "error");
-      return;
-    }
-
-    const submitButton = e.target.querySelector('button[type="submit"]');
-    const originalText = submitButton.innerHTML;
-    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
-    submitButton.disabled = true;
+// Perform final comprehensive conflict check
+function performFinalConflictCheck(data) {
+  return new Promise((resolve) => {
+    const checkData = {
+      action: "validate_complete",
+      semester_id: data.semester_id,
+      department_id: data.department_id,
+      schedule_id: data.schedule_id || '',
+      course_code: data.course_code,
+      section_name: data.section_name,
+      faculty_name: data.faculty_name,
+      room_name: data.room_name,
+      day_of_week: data.day_of_week,
+      start_time: data.start_time,
+      end_time: data.end_time
+    };
 
     fetch("/chair/generate-schedules", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(data),
+      body: new URLSearchParams(checkData)
     })
       .then(response => response.json())
       .then(result => {
-        console.log("Save response:", result);
-        if (result.success) {
-          closeModal();
-          resetConflictStyles();
-          let message = result.message || (currentEditingId ? "Schedule updated successfully!" : "Schedule added successfully!");
-
-          if (result.schedules && result.schedules.length > 1) {
-            message = "Schedules added successfully for " + result.schedules.length + " days!";
-            result.schedules.forEach((schedule) => {
-              window.scheduleData.push({ ...schedule, semester_id: currentSemesterId });
-            });
-          } else if (result.schedules && result.schedules.length === 1) {
-            if (currentEditingId) {
-              const index = window.scheduleData.findIndex((s) => s.schedule_id == currentEditingId);
-              if (index !== -1) window.scheduleData[index] = { ...window.scheduleData[index], ...result.schedules[0], semester_id: currentSemesterId };
-            } else {
-              window.scheduleData.push({ ...result.schedules[0], semester_id: currentSemesterId });
+        if (result.success && result.conflicts && result.conflicts.length > 0) {
+          // Display all conflicts
+          result.conflicts.forEach(conflict => {
+            if (conflict.includes('Section')) {
+              highlightConflictField('section-name', conflict);
+            } else if (conflict.includes('Faculty')) {
+              highlightConflictField('faculty-name', conflict);
+            } else if (conflict.includes('Room')) {
+              highlightConflictField('room-name', conflict);
+            } else if (conflict.includes('time')) {
+              highlightConflictField('start-time', conflict);
+              highlightConflictField('end-time', conflict);
             }
-          }
-
-          if (result.partial_success) message += " (" + result.failed_days + " day(s) had conflicts)";
-          showNotification(message, "success");
-          safeUpdateScheduleDisplay(window.scheduleData);
-          initializeDragAndDrop();
-          buildCurrentSemesterCourseMappings();
+          });
+          resolve(true);
         } else {
-          resetConflictStyles();
-          if (result.conflicts && result.conflicts.length > 0) {
-            result.conflicts.forEach(conflict => {
-              if (conflict.includes("faculty")) highlightConflictField("faculty-name", conflict);
-              if (conflict.includes("room")) highlightConflictField("room-name", conflict);
-              if (conflict.includes("section")) highlightConflictField("section-name", conflict);
-              if (conflict.includes("time")) {
-                highlightConflictField("start-time", conflict);
-                highlightConflictField("end-time", conflict);
-              }
-            });
-            showNotification("Schedule conflicts detected:\n• " + result.conflicts.join("\n• "), "error", 10000);
-          } else {
-            showNotification(result.message || "Failed to save schedule.", "error");
-          }
+          resolve(false);
         }
       })
-      .catch(error => {
-        console.error("Error saving schedule:", error);
-        showNotification("Error saving schedule: " + error.message, "error");
-        resetConflictStyles();
-      })
-      .finally(() => {
-        submitButton.innerHTML = originalText;
-        submitButton.disabled = false;
-      });
+      .catch(() => resolve(false));
   });
 }
+
+// Submit schedule data after validation
+function submitScheduleData(data) {
+  const submitButton = document.querySelector('#schedule-form button[type="submit"]');
+  const originalText = submitButton.innerHTML;
+  submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
+  submitButton.disabled = true;
+
+  fetch("/chair/generate-schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(data),
+  })
+    .then(response => response.json())
+    .then(result => {
+      console.log("Save response:", result);
+      handleSaveResponse(result, data);
+    })
+    .catch(error => {
+      console.error("Error saving schedule:", error);
+      showNotification("Error saving schedule: " + error.message, "error");
+    })
+    .finally(() => {
+      submitButton.innerHTML = originalText;
+      submitButton.disabled = false;
+    });
+}
+
+// Handle save response
+function handleSaveResponse(result, originalData) {
+  if (result.success) {
+    closeModal();
+    resetConflictStyles();
+
+    let message = result.message || (currentEditingId ? "Schedule updated successfully!" : "Schedule added successfully!");
+
+    if (result.schedules && result.schedules.length > 1) {
+      message = "Schedules added successfully for " + result.schedules.length + " days!";
+      result.schedules.forEach((schedule) => {
+        window.scheduleData.push({ ...schedule, semester_id: originalData.semester_id });
+      });
+    } else if (result.schedules && result.schedules.length === 1) {
+      if (currentEditingId) {
+        const index = window.scheduleData.findIndex((s) => s.schedule_id == currentEditingId);
+        if (index !== -1) window.scheduleData[index] = { ...window.scheduleData[index], ...result.schedules[0], semester_id: originalData.semester_id };
+      } else {
+        window.scheduleData.push({ ...result.schedules[0], semester_id: originalData.semester_id });
+      }
+    }
+
+    if (result.partial_success) {
+      message += " (" + result.failed_days + " day(s) had conflicts)";
+    }
+
+    showNotification(message, "success");
+    safeUpdateScheduleDisplay(window.scheduleData);
+    initializeDragAndDrop();
+    buildCurrentSemesterCourseMappings();
+  } else {
+    resetConflictStyles();
+    if (result.conflicts && result.conflicts.length > 0) {
+      const conflictDetails = result.conflicts.map(conflict => `• ${conflict}`).join('\n');
+      showNotification("Schedule conflicts detected:\n" + conflictDetails, "error", 10000);
+
+      // Highlight conflicting fields
+      result.conflicts.forEach(conflict => {
+        if (conflict.includes('faculty')) highlightConflictField('faculty-name', conflict);
+        if (conflict.includes('room')) highlightConflictField('room-name', conflict);
+        if (conflict.includes('section')) highlightConflictField('section-name', conflict);
+        if (conflict.includes('time')) {
+          highlightConflictField('start-time', conflict);
+          highlightConflictField('end-time', conflict);
+        }
+      });
+    } else {
+      showNotification(result.message || "Failed to save schedule.", "error");
+    }
+  }
+}
+
 
 function highlightConflictField(fieldId, message) {
   const field = document.getElementById(fieldId);
@@ -1286,12 +1317,14 @@ function refreshManualView() {
 
 // Initialize event listeners
 document.addEventListener("DOMContentLoaded", function () {
+  console.log("Enhanced manual schedules JS loaded");
   console.log("Manual schedules JS loaded");
   console.log("Current semester:", window.currentSemester);
   console.log("Schedule data count:", window.scheduleData?.length || 0);
 
   buildCurrentSemesterCourseMappings();
   initializeDragAndDrop();
+
 
   // Modal click outside to close
   const modal = document.getElementById("schedule-modal");
@@ -1409,6 +1442,8 @@ document.addEventListener("DOMContentLoaded", function () {
   }, 100);
 
   console.log("Manual schedules initialized successfully");
+
+  console.log("Enhanced manual schedules initialized successfully");
   console.log("Available courses for current semester:", Object.keys(currentSemesterCourses).length);
 });
 
@@ -1478,6 +1513,7 @@ function resetConflictField(fieldId) {
 }
 
 // Enhanced conflict display with friendly messages
+// Enhanced conflict display with better formatting
 function displayConflictWarning(fieldId, message, warningLevel = 'warning') {
   const field = document.getElementById(fieldId);
   if (!field) return;
@@ -1485,24 +1521,38 @@ function displayConflictWarning(fieldId, message, warningLevel = 'warning') {
   // Remove existing warning
   removeConflictWarning(fieldId);
 
-  // Add appropriate styling based on warning level
-  if (warningLevel === 'error') {
-    field.classList.add("border-red-500", "bg-red-50");
-    field.classList.remove("border-gray-300", "bg-yellow-50");
-  } else {
-    field.classList.add("border-yellow-500", "bg-yellow-50");
-    field.classList.remove("border-gray-300", "border-red-500", "bg-red-50");
-  }
+  // Add appropriate styling
+  const styles = {
+    error: {
+      border: 'border-red-500 bg-red-50',
+      text: 'text-red-600',
+      icon: 'fa-exclamation-circle'
+    },
+    warning: {
+      border: 'border-yellow-500 bg-yellow-50',
+      text: 'text-yellow-600',
+      icon: 'fa-exclamation-triangle'
+    },
+    success: {
+      border: 'border-green-500 bg-green-50',
+      text: 'text-green-600',
+      icon: 'fa-check-circle'
+    }
+  };
+
+  const style = styles[warningLevel] || styles.warning;
+
+  field.classList.add(...style.border.split(' '));
+  field.classList.remove('border-gray-300', 'bg-red-50', 'bg-yellow-50', 'bg-green-50');
 
   // Create warning message element
   const warningDiv = document.createElement("div");
-  warningDiv.className = `conflict-warning text-${warningLevel === 'error' ? 'red' : 'yellow'}-600 text-xs mt-1 flex items-start space-x-1`;
+  warningDiv.className = `conflict-warning ${style.text} text-xs mt-1 flex items-start space-x-1`;
   warningDiv.innerHTML = `
-        <i class="fas fa-exclamation-triangle mt-0.5 flex-shrink-0"></i>
-        <span class="flex-1">${message}</span>
+        <i class="fas ${style.icon} mt-0.5 flex-shrink-0"></i>
+        <span class="flex-1 whitespace-pre-line">${message}</span>
     `;
 
-  // Insert after the field
   field.parentNode.appendChild(warningDiv);
 }
 
@@ -1521,4 +1571,188 @@ function removeConflictWarning(fieldId) {
   field.classList.remove("border-red-500", "bg-red-50", "border-yellow-500", "bg-yellow-50");
   field.classList.add("border-gray-300");
   field.style.backgroundColor = "";
+}
+
+// Delete All Schedules Functionality
+function deleteAllSchedules() {
+  console.log("Delete All button clicked");
+
+  // Check if there are any schedules to delete
+  const currentSemesterId = window.currentSemester?.semester_id;
+  const currentSemesterSchedules = window.scheduleData.filter((s) => s.semester_id == currentSemesterId);
+
+  if (currentSemesterSchedules.length === 0) {
+    showNotification("No schedules found to delete.", "error");
+    return;
+  }
+
+  // Show confirmation modal
+  openDeleteModal();
+}
+
+function openDeleteModal() {
+  console.log("Opening delete confirmation modal...");
+  const modal = document.getElementById("delete-confirmation-modal");
+  if (modal) {
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+    console.log("Delete confirmation modal opened successfully");
+  } else {
+    console.error("Delete confirmation modal element not found!");
+    // Fallback: use browser confirmation
+    if (confirm("Are you sure you want to delete ALL schedules? This action cannot be undone.")) {
+      confirmDeleteAllSchedules();
+    }
+  }
+}
+
+function closeDeleteModal() {
+  console.log("Closing delete modal...");
+  const modal = document.getElementById("delete-confirmation-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+  }
+}
+
+function confirmDeleteAllSchedules() {
+  console.log("Confirming deletion of all schedules...");
+
+  const deleteButton = document.querySelector('#delete-confirmation-modal button[onclick="confirmDeleteAllSchedules()"]');
+  const originalText = deleteButton ? deleteButton.innerHTML : "";
+
+  if (deleteButton) {
+    deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Deleting...';
+    deleteButton.disabled = true;
+  }
+
+  fetch("/chair/generate-schedules", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      action: "delete_all_schedules",
+      confirm: "true",
+      semester_id: window.currentSemester?.semester_id || ""
+    }),
+  })
+    .then((response) => {
+      console.log("Delete all response status:", response.status);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      return response.json();
+    })
+    .then((data) => {
+      console.log("Delete all response data:", data);
+      if (data.success) {
+        showNotification("All schedules deleted successfully!", "success");
+        window.scheduleData = [];
+        safeUpdateScheduleDisplay([]);
+        buildCurrentSemesterCourseMappings();
+
+        const generationResults = document.getElementById("generation-results");
+        if (generationResults) generationResults.classList.add("hidden");
+      } else {
+        showNotification("Error: " + (data.message || "Failed to delete all schedules"), "error");
+      }
+    })
+    .catch((error) => {
+      console.error("Delete all error:", error);
+      showNotification("Error deleting all schedules: " + error.message, "error");
+    })
+    .finally(() => {
+      if (deleteButton) {
+        deleteButton.innerHTML = originalText;
+        deleteButton.disabled = false;
+      }
+      closeDeleteModal();
+    });
+}
+
+// Enhanced event listeners setup
+function setupEnhancedEventListeners() {
+  // Faculty validation
+  const facultySelect = document.getElementById("faculty-name");
+  if (facultySelect) {
+    facultySelect.addEventListener("change", (e) => {
+      validateFieldRealTime("faculty_name", e.target.value, getRelatedFields());
+    });
+  }
+
+  // Room validation
+  const roomSelect = document.getElementById("room-name");
+  if (roomSelect) {
+    roomSelect.addEventListener("change", (e) => {
+      validateFieldRealTime("room_name", e.target.value, getRelatedFields());
+    });
+  }
+
+  // Section validation
+  const sectionSelect = document.getElementById("section-name");
+  if (sectionSelect) {
+    sectionSelect.addEventListener("change", (e) => {
+      validateFieldRealTime("section_name", e.target.value, getRelatedFields());
+      handleSectionChange();
+    });
+  }
+
+  // Day pattern validation
+  const daySelect = document.getElementById("day-select");
+  if (daySelect) {
+    daySelect.addEventListener("change", (e) => {
+      updateDayField();
+      validateFieldRealTime("day_of_week", e.target.value, getRelatedFields());
+    });
+  }
+
+  // Time validation
+  const startTimeSelect = document.getElementById("start-time");
+  if (startTimeSelect) {
+    startTimeSelect.addEventListener("change", (e) => {
+      updateTimeFields();
+      validateFieldRealTime("start_time", e.target.value + ":00", getRelatedFields());
+    });
+  }
+
+  const endTimeSelect = document.getElementById("end-time");
+  if (endTimeSelect) {
+    endTimeSelect.addEventListener("change", (e) => {
+      updateTimeFields();
+      validateFieldRealTime("end_time", e.target.value + ":00", getRelatedFields());
+    });
+  }
+
+  // Course code validation
+  const courseCodeInput = document.getElementById("course-code");
+  if (courseCodeInput) {
+    courseCodeInput.addEventListener("blur", syncCourseName);
+    courseCodeInput.addEventListener("input", function () {
+      resetConflictField("course-code");
+      resetConflictField("course-name");
+    });
+  }
+
+  // Course name validation
+  const courseNameInput = document.getElementById("course-name");
+  if (courseNameInput) {
+    courseNameInput.addEventListener("blur", syncCourseCode);
+    courseNameInput.addEventListener("input", function () {
+      resetConflictField("course-code");
+      resetConflictField("course-name");
+    });
+  }
+}
+
+// Helper to get related fields for comprehensive validation
+function getRelatedFields() {
+  const form = document.getElementById("schedule-form");
+  if (!form) return {};
+
+  const formData = new FormData(form);
+  return {
+    day_of_week: formData.get("day_of_week") || document.getElementById("day-select")?.value || "",
+    start_time: (document.getElementById("start-time")?.value || "") + ":00",
+    end_time: (document.getElementById("end-time")?.value || "") + ":00",
+    faculty_name: formData.get("faculty_name") || "",
+    room_name: formData.get("room_name") || "",
+    section_name: formData.get("section_name") || ""
+  };
 }

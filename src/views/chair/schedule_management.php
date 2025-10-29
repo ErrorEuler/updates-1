@@ -298,7 +298,7 @@ if ($userDepartmentId) {
                                 <span>List View</span>
                             </button>
 
-                            <button id="delete-all-btn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors text-sm" onclick="deleteAllSchedules()">
+                            <button id="delete-all-btn-manual" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors text-sm" onclick="deleteAllSchedules()">
                                 <i class="fas fa-trash"></i>
                                 <span>Delete All</span>
                             </button>
@@ -639,7 +639,7 @@ if ($userDepartmentId) {
                             </div>
 
                             <div class="flex items-end">
-                                <button id="delete-all-btn" class="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 transition-colors text-sm" onclick="deleteAllSchedules()">
+                                <button id="delete-all-btn-view" class="w-full bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg flex items-center justify-center space-x-2 transition-colors text-sm" onclick="deleteAllSchedules()">
                                     <i class="fas fa-trash"></i>
                                     <span>Delete All</span>
                                 </button>

@@ -53,7 +53,7 @@ class ChairController
         }
     }
 
-   // Get department ID for the Chair
+    // Get department ID for the Chair
     public function getChairDepartment($chairId)
     {
         $stmt = $this->db->prepare("SELECT p.department_id 
@@ -534,7 +534,7 @@ class ChairController
             exit;
         }
     }
-    
+
     // Handle schedule download
     private function handleDownload($chairId)
     {
@@ -978,7 +978,7 @@ class ChairController
             return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
         }
     }
-    
+
     // getting the college of the chairperson
     private function getChairCollege($userId)
     {
@@ -1127,34 +1127,35 @@ class ChairController
 
         return array_unique($conflicts);
     }
-    // Check conflicts for a specific entity (section, faculty, room)
+
+    // Enhanced entity conflict checking
     private function checkEntityConflicts($entityField, $entityId, $dayOfWeek, $startTime, $endTime, $excludeScheduleId, $semesterId)
     {
         $conflicts = [];
 
         $sql = "
-        SELECT 
-            s.schedule_id,
-            c.course_code,
-            sec.section_name,
-            CONCAT(u.first_name, ' ', u.last_name) AS faculty_name,
-            r.room_name,
-            s.day_of_week,
-            s.start_time,
-            s.end_time
-        FROM schedules s
-        JOIN courses c ON s.course_id = c.course_id
-        JOIN sections sec ON s.section_id = sec.section_id
-        JOIN faculty f ON s.faculty_id = f.faculty_id
-        JOIN users u ON f.user_id = u.user_id
-        LEFT JOIN classrooms r ON s.room_id = r.room_id
-        WHERE s.{$entityField} = :entity_id
-        AND s.semester_id = :semester_id
-        AND s.day_of_week = :day_of_week
-        AND (
-            (s.start_time < :end_time AND s.end_time > :start_time)
-        )
-        ";
+    SELECT 
+        s.schedule_id,
+        c.course_code,
+        sec.section_name,
+        CONCAT(u.first_name, ' ', u.last_name) AS faculty_name,
+        r.room_name,
+        s.day_of_week,
+        s.start_time,
+        s.end_time
+    FROM schedules s
+    JOIN courses c ON s.course_id = c.course_id
+    JOIN sections sec ON s.section_id = sec.section_id
+    JOIN faculty f ON s.faculty_id = f.faculty_id
+    JOIN users u ON f.user_id = u.user_id
+    LEFT JOIN classrooms r ON s.room_id = r.room_id
+    WHERE s.{$entityField} = :entity_id
+    AND s.semester_id = :semester_id
+    AND s.day_of_week = :day_of_week
+    AND (
+        (s.start_time < :end_time AND s.end_time > :start_time)
+    )
+    ";
 
         $params = [
             ':entity_id' => $entityId,
@@ -1175,11 +1176,107 @@ class ChairController
 
         foreach ($existingSchedules as $schedule) {
             $entityType = $this->getEntityType($entityField);
-            $conflicts[] = "{$entityType} conflict: {$schedule['course_code']} with {$schedule['section_name']} at {$schedule['start_time']}-{$schedule['end_time']}";
+            $conflictMessage = "{$entityType} conflict: {$schedule['course_code']} with {$schedule['section_name']} ";
+
+            if ($entityField === 'faculty_id') {
+                $conflictMessage .= "(Faculty: {$schedule['faculty_name']}) ";
+            } elseif ($entityField === 'room_id') {
+                $conflictMessage .= "(Room: {$schedule['room_name']}) ";
+            }
+
+            $conflictMessage .= "on {$schedule['day_of_week']} at " .
+                date('g:i A', strtotime($schedule['start_time'])) . ' - ' .
+                date('g:i A', strtotime($schedule['end_time']));
+
+            $conflicts[] = $conflictMessage;
         }
 
         return $conflicts;
     }
+
+    // Check for duplicate course in same section
+    private function checkCourseSectionConflicts($sectionId, $courseCode, $days, $startTime, $endTime, $excludeScheduleId, $semesterId)
+    {
+        $conflicts = [];
+
+        $sql = "
+    SELECT s.schedule_id, c.course_code, s.day_of_week, s.start_time, s.end_time
+    FROM schedules s
+    JOIN courses c ON s.course_id = c.course_id
+    WHERE s.section_id = :section_id
+    AND c.course_code = :course_code
+    AND s.semester_id = :semester_id
+    ";
+
+        $params = [
+            ':section_id' => $sectionId,
+            ':course_code' => $courseCode,
+            ':semester_id' => $semesterId
+        ];
+
+        if ($excludeScheduleId) {
+            $sql .= " AND s.schedule_id != :exclude_schedule_id";
+            $params[':exclude_schedule_id'] = $excludeScheduleId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $existingCourses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($existingCourses as $existing) {
+            foreach ($days as $day) {
+                if ($existing['day_of_week'] === $day) {
+                    $conflicts[] = "Course {$courseCode} already scheduled for this section on {$day} at " .
+                        date('g:i A', strtotime($existing['start_time'])) . ' - ' .
+                        date('g:i A', strtotime($existing['end_time']));
+                }
+            }
+        }
+
+        return $conflicts;
+    }
+
+    // Helper methods to get entity IDs
+    private function getSectionIdByName($sectionName, $departmentId, $semesterId)
+    {
+        if (!$sectionName) return null;
+
+        $sections = $this->getSections($departmentId, $semesterId);
+        foreach ($sections as $section) {
+            if ($section['section_name'] === $sectionName) {
+                return $section['section_id'];
+            }
+        }
+        return null;
+    }
+
+    private function getFacultyIdByName($facultyName, $departmentId, $collegeId)
+    {
+        if (!$facultyName) return null;
+
+        $facultyList = $this->getFaculty($departmentId, $collegeId);
+        foreach ($facultyList as $faculty) {
+            if (strpos($faculty['name'], $facultyName) !== false) {
+                return $faculty['faculty_id'];
+            }
+        }
+        return null;
+    }
+
+    private function getRoomIdByName($roomName, $departmentId)
+    {
+        if (!$roomName || $roomName === 'Online') return null;
+
+        $classrooms = $this->getClassrooms($departmentId);
+        foreach ($classrooms as $room) {
+            if ($room['room_name'] === $roomName) {
+                return $room['room_id'];
+            }
+        }
+        return null;
+    }
+
+    
 
     // Get entity type string for conflict messages
     private function getEntityType($entityField)
@@ -1535,7 +1632,7 @@ class ChairController
         $stmt->execute([':schedule_id' => $scheduleId]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
-    
+
     // main function to manage schedule
     public function manageSchedule()
     {
@@ -1600,7 +1697,8 @@ class ChairController
         define('IN_MANAGE_SCHEDULE', true);
         require_once __DIR__ . '/../views/chair/schedule_management.php';
     }
-     // AJAX handler for generating schedules
+    // AJAX handler for generating schedules
+    // AJAX handler for generating schedules
     public function generateSchedulesAjax()
     {
         header('Content-Type: application/json');
@@ -1642,8 +1740,35 @@ class ChairController
         error_log("generateSchedulesAjax: Action: $action");
 
         switch ($action) {
+            // NEW CASE: validate_complete - Added right here bro!
+            case 'validate_complete':
+                $chairId = $_SESSION['user_id'] ?? null;
+                $departmentId = $this->getChairDepartment($chairId);
+                $currentSemester = $this->getCurrentSemester();
+                $collegeData = $this->getChairCollege($chairId);
+                $collegeId = $collegeData['college_id'] ?? null;
+
+                if (!$chairId || !$currentSemester || !$departmentId || !$collegeId) {
+                    error_log("validate_complete: Missing required session data - chairId: $chairId, dept: $departmentId, college: $collegeId");
+                    echo json_encode(['success' => false, 'message' => 'Invalid session data']);
+                    exit;
+                }
+
+                $data = $_POST;
+                error_log("validate_complete: Received data - " . print_r($data, true));
+
+                $conflicts = $this->performCompleteConflictCheck($data, $departmentId, $currentSemester, $collegeId);
+
+                echo json_encode([
+                    'success' => true,
+                    'conflicts' => $conflicts,
+                    'message' => empty($conflicts) ? 'No conflicts detected' : 'Conflicts found'
+                ]);
+                exit;
+                break;
 
             case 'validate_partial':
+                // ... existing validate_partial code remains exactly the same ...
                 $chairId = $_SESSION['user_id'] ?? null;
                 $departmentId = $this->getChairDepartment($chairId);
                 $currentSemester = $this->getCurrentSemester();
@@ -1738,180 +1863,8 @@ class ChairController
                 ]);
                 exit;
                 break;
-                $chairId = $_SESSION['user_id'] ?? null;
-                $departmentId = $this->getChairDepartment($chairId);
-                $currentSemester = $this->getCurrentSemester();
-                $collegeData = $this->getChairCollege($chairId);
-                $collegeId = $collegeData['college_id'] ?? null;
 
-                if (!$chairId || !$currentSemester || !$departmentId || !$collegeId) {
-                    error_log("validate_partial: Missing required session data - chairId: $chairId, dept: $departmentId, college: $collegeId");
-                    echo json_encode(['success' => false, 'message' => 'Invalid session data']);
-                    exit;
-                }
-
-                $data = $_POST;
-                error_log("validate_partial: Received data - " . print_r($data, true)); // Log incoming data
-
-                $conflicts = [];
-
-                // Required fields for partial validation
-                $sectionName = $data['section_name'] ?? '';
-                $facultyName = $data['faculty_name'] ?? '';
-                $roomName = $data['room_name'] ?? '';
-                $dayOfWeek = $data['day_of_week'] ?? '';
-                $startTime = $data['start_time'] ?? '';
-                $endTime = $data['end_time'] ?? '';
-
-                // Get section_id if available
-                $sectionId = null;
-                $sectionsList = $this->getSections($departmentId, $currentSemester['semester_id']);
-                foreach ($sectionsList as $section) {
-                    if ($section['section_name'] === $sectionName) {
-                        $sectionId = $section['section_id'];
-                        break;
-                    }
-                }
-
-                // Get faculty_id if available
-                $facultyId = null;
-                $facultyList = $this->getFaculty($departmentId, $collegeId);
-                foreach ($facultyList as $facultyMember) {
-                    if (strpos($facultyMember['name'], $facultyName) !== false) {
-                        $facultyId = $facultyMember['faculty_id'];
-                        break;
-                    }
-                }
-
-                // Get room_id if available
-                $roomId = null;
-                if (!empty($roomName) && $roomName !== 'Online') {
-                    $classroomsList = $this->getClassrooms($departmentId);
-                    foreach ($classroomsList as $room) {
-                        if ($room['room_name'] === $roomName) {
-                            $roomId = $room['room_id'];
-                            break;
-                        }
-                    }
-                }
-
-                // Expand day pattern
-                $daysToCheck = $this->schedulingService->expandDayPattern($dayOfWeek);
-                if (empty($daysToCheck)) {
-                    $daysToCheck = [$dayOfWeek];
-                }
-
-                // Check conflicts if we have enough data
-                if ($sectionId || $facultyId || $roomId) {
-                    foreach ($daysToCheck as $day) {
-                        $conflicts = array_merge($conflicts, $this->checkScheduleConflicts(
-                            $sectionId ?: null,
-                            $facultyId ?: null,
-                            $roomId ?: null,
-                            $day,
-                            $startTime,
-                            $endTime,
-                            null,
-                            $currentSemester['semester_id']
-                        ));
-                    }
-                } elseif ($startTime && $endTime && $dayOfWeek) {
-                    // Minimal check if no entity IDs yet
-                    $conflicts[] = "Please select a faculty, section, or room to check for conflicts.";
-                }
-
-                echo json_encode([
-                    'success' => true,
-                    'conflicts' => array_unique($conflicts),
-                    'message' => empty($conflicts) ? 'No conflicts detected' : 'Potential conflicts found'
-                ]);
-                exit;
-                break;
-                $chairId = $_SESSION['user_id'] ?? null;
-                $departmentId = $this->getChairDepartment($chairId);
-                $currentSemester = $this->getCurrentSemester();
-                $collegeData = $this->getChairCollege($chairId);
-                $collegeId = $collegeData['college_id'] ?? null;
-
-                if (!$chairId || !$currentSemester || !$departmentId || !$collegeId) {
-                    error_log("validate_partial: Missing required session data - chairId: $chairId, dept: $departmentId, college: $collegeId");
-                    echo json_encode(['success' => false, 'message' => 'Invalid session data']);
-                    exit;
-                }
-
-                $data = $_POST;
-                $conflicts = [];
-
-                // Required fields for partial validation
-                $sectionName = $data['section_name'] ?? '';
-                $facultyName = $data['faculty_name'] ?? '';
-                $roomName = $data['room_name'] ?? '';
-                $dayOfWeek = $data['day_of_week'] ?? '';
-                $startTime = $data['start_time'] ?? '';
-                $endTime = $data['end_time'] ?? '';
-
-                // Get section_id if available
-                $sectionId = null;
-                $sectionsList = $this->getSections($departmentId, $currentSemester['semester_id']);
-                foreach ($sectionsList as $section) {
-                    if ($section['section_name'] === $sectionName) {
-                        $sectionId = $section['section_id'];
-                        break;
-                    }
-                }
-
-                // Get faculty_id if available
-                $facultyId = null;
-                $facultyList = $this->getFaculty($departmentId, $collegeId);
-                foreach ($facultyList as $facultyMember) {
-                    if (strpos($facultyMember['name'], $facultyName) !== false) {
-                        $facultyId = $facultyMember['faculty_id'];
-                        break;
-                    }
-                }
-
-                // Get room_id if available
-                $roomId = null;
-                if (!empty($roomName) && $roomName !== 'Online') {
-                    $classroomsList = $this->getClassrooms($departmentId);
-                    foreach ($classroomsList as $room) {
-                        if ($room['room_name'] === $roomName) {
-                            $roomId = $room['room_id'];
-                            break;
-                        }
-                    }
-                }
-
-                // Expand day pattern
-                $daysToCheck = $this->schedulingService->expandDayPattern($dayOfWeek);
-                if (empty($daysToCheck)) {
-                    $daysToCheck = [$dayOfWeek];
-                }
-
-                // Check conflicts if we have enough data
-                if ($sectionId || $facultyId || $roomId) {
-                    foreach ($daysToCheck as $day) {
-                        $conflicts = array_merge($conflicts, $this->checkScheduleConflicts(
-                            $sectionId ?: null,
-                            $facultyId ?: null,
-                            $roomId ?: null,
-                            $day,
-                            $startTime,
-                            $endTime,
-                            null, // No exclude for partial check
-                            $currentSemester['semester_id']
-                        ));
-                    }
-                }
-
-                echo json_encode([
-                    'success' => true,
-                    'conflicts' => array_unique($conflicts),
-                    'message' => empty($conflicts) ? 'No conflicts detected' : 'Potential conflicts found'
-                ]);
-                exit;
-                break;
-
+            // ... rest of your existing cases remain exactly the same ...
             case 'get_curriculum_details':
                 $curriculumId = $_POST['curriculum_id'] ?? null;
                 if ($curriculumId) {
@@ -2034,6 +1987,67 @@ class ChairController
         }
 
         exit;
+    }
+
+    // Enhanced complete conflict checking
+    private function performCompleteConflictCheck($data, $departmentId, $currentSemester, $collegeId)
+    {
+        $conflicts = [];
+
+        try {
+            // Get entity IDs
+            $sectionId = $this->getSectionIdByName($data['section_name'] ?? '', $departmentId, $currentSemester['semester_id']);
+            $facultyId = $this->getFacultyIdByName($data['faculty_name'] ?? '', $departmentId, $collegeId);
+            $roomId = $this->getRoomIdByName($data['room_name'] ?? '', $departmentId);
+
+            $scheduleId = $data['schedule_id'] ?? null;
+            $dayOfWeek = $data['day_of_week'] ?? '';
+            $startTime = $data['start_time'] ?? '';
+            $endTime = $data['end_time'] ?? '';
+
+            // Expand day pattern for comprehensive checking
+            $daysToCheck = $this->schedulingService->expandDayPattern($dayOfWeek);
+            if (empty($daysToCheck)) {
+                $daysToCheck = [$dayOfWeek];
+            }
+
+            // Check each entity for conflicts
+            foreach ($daysToCheck as $day) {
+                // Section conflicts
+                if ($sectionId) {
+                    $sectionConflicts = $this->checkEntityConflicts('section_id', $sectionId, $day, $startTime, $endTime, $scheduleId, $currentSemester['semester_id']);
+                    $conflicts = array_merge($conflicts, $sectionConflicts);
+                }
+
+                // Faculty conflicts
+                if ($facultyId) {
+                    $facultyConflicts = $this->checkEntityConflicts('faculty_id', $facultyId, $day, $startTime, $endTime, $scheduleId, $currentSemester['semester_id']);
+                    $conflicts = array_merge($conflicts, $facultyConflicts);
+                }
+
+                // Room conflicts (only if room is specified and not online)
+                if ($roomId && $data['room_name'] !== 'Online') {
+                    $roomConflicts = $this->checkEntityConflicts('room_id', $roomId, $day, $startTime, $endTime, $scheduleId, $currentSemester['semester_id']);
+                    $conflicts = array_merge($conflicts, $roomConflicts);
+                }
+            }
+
+            // Check for time validity
+            if ($startTime && $endTime && $startTime >= $endTime) {
+                $conflicts[] = "Invalid time: End time must be after start time";
+            }
+
+            // Check for overlapping schedules in the same section for the same course
+            if ($sectionId && isset($data['course_code'])) {
+                $courseConflicts = $this->checkCourseSectionConflicts($sectionId, $data['course_code'], $daysToCheck, $startTime, $endTime, $scheduleId, $currentSemester['semester_id']);
+                $conflicts = array_merge($conflicts, $courseConflicts);
+            }
+        } catch (Exception $e) {
+            error_log("Complete conflict check error: " . $e->getMessage());
+            $conflicts[] = "Error during conflict checking: " . $e->getMessage();
+        }
+
+        return array_unique($conflicts);
     }
 
     // generate schedules 
@@ -2615,7 +2629,7 @@ class ChairController
 
         return $conflicts;
     }
-    
+
     private function scheduleCourseSectionsInDifferentTimeSlots($course, $sectionsForCourse, $targetDays, $timeSlots, &$sectionScheduleTracker, $facultySpecializations, &$facultyAssignments, $currentSemester, $departmentId, &$schedules, &$onlineSlotTracker, &$roomAssignments, &$usedTimeSlots, $subjectType, $isLecture = false, $isLab = false, $forceF2F = false, $component = null, $facultyId = null)
     {
         $scheduledSections = [];
