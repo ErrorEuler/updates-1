@@ -752,11 +752,36 @@ if ($userDepartmentId) {
             </div>
         </div>
 
-        <!-- Loading Overlay -->
-        <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-md flex items-center justify-center z-50 hidden">
-            <div class="bg-white p-8 rounded-lg shadow-xl text-center">
-                <div class="pulsing-loader mx-auto mb-4"></div>
-                <p class="text-gray-700 font-medium">Generating schedules...</p>
+        <!-- Loading Overlay - FIXED -->
+        <div id="loading-overlay" class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-md flex items-center justify-center z-50 hidden">
+            <div class="bg-white rounded-xl shadow-2xl p-8 text-center min-w-[400px]">
+                <!-- Loading Spinner -->
+                <div class="flex justify-center mb-6">
+                    <div class="relative">
+                        <div class="w-16 h-16 border-4 border-yellow-200 rounded-full"></div>
+                        <div class="w-16 h-16 border-4 border-yellow-500 rounded-full animate-spin border-t-transparent absolute top-0 left-0"></div>
+                    </div>
+                </div>
+
+                <!-- Loading Text -->
+                <h3 class="text-xl font-bold text-gray-800 mb-2">Generating Schedules</h3>
+                <p class="text-gray-600 mb-6">Please wait while we create your schedules...</p>
+
+                <!-- Progress Bar -->
+                <div class="w-full bg-gray-200 rounded-full h-3 mb-2">
+                    <div id="progress-bar" class="bg-yellow-500 h-3 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                </div>
+
+                <!-- Progress Text -->
+                <div class="flex justify-between text-sm text-gray-600">
+                    <span>Initializing...</span>
+                    <span id="progress-text">0%</span>
+                </div>
+
+                <!-- Cancel Button -->
+                <button id="cancel-generation" class="mt-6 px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+                    Cancel Generation
+                </button>
             </div>
         </div>
 
@@ -2271,6 +2296,86 @@ if ($userDepartmentId) {
                 });
             }
 
+            // New function to update view schedule tab
+            function updateViewScheduleTab(schedules) {
+                const viewGrid = document.getElementById('timetableGrid');
+                if (!viewGrid) return;
+
+                viewGrid.innerHTML = '';
+
+                const timeSlots = [
+                    ['07:30', '08:30'],
+                    ['08:30', '10:00'],
+                    ['10:00', '11:00'],
+                    ['11:00', '12:30'],
+                    ['12:30', '13:30'],
+                    ['13:00', '14:30'],
+                    ['14:30', '15:30'],
+                    ['15:30', '17:00'],
+                    ['17:00', '18:00']
+                ];
+
+                const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+                timeSlots.forEach(time => {
+                    const duration = (new Date(`2000-01-01 ${time[1]}`) - new Date(`2000-01-01 ${time[0]}`)) / 1000;
+                    const rowSpan = duration / 7200;
+                    const minHeight = rowSpan * 80;
+
+                    const row = document.createElement('div');
+                    row.className = `grid grid-cols-7 min-h-[${minHeight}px] hover:bg-gray-50 transition-colors duration-200`;
+                    row.style.gridRow = `span ${rowSpan}`;
+
+                    // Time cell
+                    const timeCell = document.createElement('div');
+                    timeCell.className = 'px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 flex items-center sticky left-0 z-10';
+                    timeCell.setAttribute('rowspan', rowSpan);
+                    timeCell.innerHTML = `
+            <span class="text-sm hidden sm:block">${formatTime(time[0])} - ${formatTime(time[1])}</span>
+            <span class="text-xs sm:hidden">${time[0].substring(0, 5)}-${time[1].substring(0, 5)}</span>
+        `;
+                    row.appendChild(timeCell);
+
+                    // Day cells
+                    days.forEach(day => {
+                        const cell = document.createElement('div');
+                        cell.className = `px-1 py-1 border-r border-gray-200 last:border-r-0 min-h-[${minHeight}px] relative schedule-cell`;
+                        cell.dataset.day = day;
+                        cell.dataset.startTime = time[0];
+                        cell.dataset.endTime = time[1];
+
+                        // Find schedules for this time slot
+                        const schedulesForSlot = schedules.filter(schedule => {
+                            if (schedule.day_of_week !== day) return false;
+
+                            const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                            const scheduleEnd = schedule.end_time ? schedule.end_time.substring(0, 5) : '';
+
+                            if (!scheduleStart || !scheduleEnd) return false;
+
+                            // Check if schedule starts in this exact time slot
+                            return scheduleStart === time[0] && scheduleEnd === time[1];
+                        });
+
+                        if (schedulesForSlot.length > 0) {
+                            const schedulesContainer = document.createElement('div');
+                            schedulesContainer.className = 'space-y-1';
+
+                            schedulesForSlot.forEach(schedule => {
+                                const scheduleItem = createSafeScheduleItem(schedule);
+                                schedulesContainer.appendChild(scheduleItem);
+                            });
+
+                            cell.appendChild(schedulesContainer);
+                        }
+
+                        row.appendChild(cell);
+                    });
+
+                    viewGrid.appendChild(row);
+                });
+            }
+
 
             function filterSchedules() {
                 const yearLevel = document.getElementById('filter-year').value;
@@ -2302,6 +2407,82 @@ if ($userDepartmentId) {
                 });
             }
 
+
+            // New function to update list view
+            function updateListView(schedules) {
+                const listView = document.getElementById('list-view');
+                if (!listView) return;
+
+                const tbody = listView.querySelector('tbody');
+                if (!tbody) return;
+
+                tbody.innerHTML = '';
+
+                if (schedules.length === 0) {
+                    const emptyRow = document.createElement('tr');
+                    emptyRow.innerHTML = `
+            <td colspan="8" class="px-4 py-8 text-center text-gray-500">
+                <i class="fas fa-inbox text-3xl mb-2"></i>
+                <p class="mt-2">No schedules found</p>
+            </td>
+        `;
+                    tbody.appendChild(emptyRow);
+                    return;
+                }
+
+                schedules.forEach(schedule => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50 transition-colors duration-200 schedule-row';
+                    row.dataset.scheduleId = schedule.schedule_id;
+
+                    row.innerHTML = `
+            <td class="px-4 py-3 text-sm text-gray-900 font-medium">
+                ${schedule.course_code || ''}
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700">
+                ${schedule.section_name || ''}
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700">
+                ${schedule.year_level || ''}
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700">
+                ${schedule.faculty_name || ''}
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700">
+                ${schedule.day_of_week || ''}
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700">
+                ${schedule.start_time && schedule.end_time ? 
+                    `${formatTime(schedule.start_time.substring(0, 5))} - ${formatTime(schedule.end_time.substring(0, 5))}` : 
+                    ''}
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-700">
+                ${schedule.room_name || 'Online'}
+            </td>
+            <td class="px-4 py-3 text-center">
+                <div class="flex space-x-2 justify-center">
+                    <button onclick="editSchedule('${schedule.schedule_id || ''}')" class="text-yellow-600 hover:text-yellow-700 text-sm no-print">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button onclick="openDeleteSingleModal(
+                        '${schedule.schedule_id || ''}', 
+                        '${schedule.course_code || ''}', 
+                        '${schedule.section_name || ''}', 
+                        '${schedule.day_of_week || ''}', 
+                        '${schedule.start_time ? formatTime(schedule.start_time.substring(0, 5)) : ''}', 
+                        '${schedule.end_time ? formatTime(schedule.end_time.substring(0, 5)) : ''}'
+                    )" class="text-red-600 hover:text-red-700 text-sm no-print">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+
+                    tbody.appendChild(row);
+                });
+            }
+
+
             function clearFilters() {
                 document.getElementById('filter-year').value = '';
                 document.getElementById('filter-section').value = '';
@@ -2311,106 +2492,84 @@ if ($userDepartmentId) {
 
             // Safe function to update schedule display without escapeHtml issues
             // Enhanced function to update schedule display without overlapping issues
+            // Enhanced function to update schedule display with better time slot handling
             function safeUpdateScheduleDisplay(schedules) {
                 window.scheduleData = schedules;
 
-                // Update manual grid
+                console.log("Updating schedule display with", schedules.length, "schedules");
+
+                // Update manual grid (Grid View)
                 const manualGrid = document.getElementById("schedule-grid");
                 if (manualGrid) {
                     manualGrid.innerHTML = "";
 
-                    // Build dynamic time slots from schedules so any start/end (e.g. 08:00-09:00, 08:00-09:30) will appear as its own row.
-                    // Fallback range used when no schedules present.
-                    const defaultStart = '07:30';
-                    const defaultEnd = '21:00';
+                    // Use the same time slots as PHP to ensure consistency
+                    const timeSlots = [
+                        ['07:30', '08:30'],
+                        ['08:30', '10:00'],
+                        ['10:00', '11:00'],
+                        ['11:00', '12:30'],
+                        ['12:30', '13:30'],
+                        ['13:00', '14:30'],
+                        ['14:30', '15:30'],
+                        ['15:30', '17:00'],
+                        ['17:00', '18:00']
+                    ];
 
-                    // Collect all relevant time points (start and end times) from schedules, plus defaults
-                    const timePointsSet = new Set([defaultStart, defaultEnd]);
-                    schedules.forEach(s => {
-                        if (s.start_time) timePointsSet.add(s.start_time.substring(0, 5));
-                        if (s.end_time) timePointsSet.add(s.end_time.substring(0, 5));
-                    });
+                    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-                    // Convert to array and sort by minutes-of-day
-                    const timePoints = Array.from(timePointsSet).filter(Boolean).map(tp => {
-                        const parts = tp.split(':').map(x => parseInt(x, 10));
-                        return {
-                            raw: tp,
-                            minutes: parts[0] * 60 + (parts[1] || 0)
-                        };
-                    }).sort((a, b) => a.minutes - b.minutes).map(x => x.raw);
-
-                    // If we somehow only have one point, build a sensible step-based list (30-min steps)
-                    let times = [];
-                    if (timePoints.length < 2) {
-                        const toMinutes = t => {
-                            const [h, m] = t.split(':');
-                            return parseInt(h) * 60 + parseInt(m);
-                        };
-                        const fromMinutes = m => {
-                            const hh = Math.floor(m / 60).toString().padStart(2, '0');
-                            const mm = (m % 60).toString().padStart(2, '0');
-                            return `${hh}:${mm}`;
-                        };
-                        const startMin = toMinutes(defaultStart);
-                        const endMin = toMinutes(defaultEnd);
-                        for (let m = startMin; m < endMin; m += 30) {
-                            times.push([fromMinutes(m), fromMinutes(Math.min(m + 30, endMin))]);
-                        }
-                    } else {
-                        // Build intervals from consecutive unique time points
-                        for (let i = 0; i < timePoints.length - 1; i++) {
-                            const a = timePoints[i];
-                            const b = timePoints[i + 1];
-                            // Skip zero-length intervals
-                            if (a !== b) times.push([a, b]);
-                        }
-                    }
-
-                    times.forEach(time => {
-                        // Calculate row span like PHP does
-                        const duration = (new Date(`2000-01-01 ${time[1]}`) - new Date(`2000-01-01 ${time[0]}`)) / 1000;
-                        const rowSpan = duration / 7200; // 2 hours in seconds
-                        const minHeight = rowSpan * 80;
-
+                    timeSlots.forEach(time => {
                         const row = document.createElement('div');
-                        row.className = `grid grid-cols-7 min-h-[${minHeight}px] hover:bg-gray-50 transition-colors duration-200`;
-                        row.style.gridRow = `span ${rowSpan}`;
+                        row.className = `grid grid-cols-7 min-h-[100px] hover:bg-gray-50 transition-colors duration-200`;
 
-                        // Time cell - match PHP structure
+                        // Time column
                         const timeCell = document.createElement('div');
-                        timeCell.className = 'px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 flex items-center sticky left-0 z-10';
-                        timeCell.setAttribute('rowspan', rowSpan);
-
-                        // Time content like PHP
+                        timeCell.className = 'px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 sticky left-0 z-10 flex items-start';
                         timeCell.innerHTML = `
-                        <span class="text-sm hidden sm:block">${formatTime(time[0])} - ${formatTime(time[1])}</span>
-                        <span class="text-xs sm:hidden">${time[0].substring(0, 5)}-${time[1].substring(0, 5)}</span>
-                    `;
+                <span class="text-sm hidden sm:block">${formatTime(time[0])} - ${formatTime(time[1])}</span>
+                <span class="text-xs sm:hidden">${time[0].substring(0, 5)}-${time[1].substring(0, 5)}</span>
+            `;
                         row.appendChild(timeCell);
 
-                        // Day cells
-                        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].forEach(day => {
+                        // Day columns
+                        days.forEach(day => {
                             const cell = document.createElement('div');
-                            cell.className = `px-1 py-1 border-r border-gray-200 last:border-r-0 min-h-[${minHeight}px] relative drop-zone`;
+                            cell.className = 'px-1 py-1 border-r border-gray-200 last:border-r-0 relative drop-zone';
                             cell.dataset.day = day;
                             cell.dataset.startTime = time[0];
                             cell.dataset.endTime = time[1];
 
-                            // Find ALL schedules for this time slot (not just one)
-                            const schedulesForSlot = schedules.filter(s =>
-                                s.day_of_week === day &&
-                                s.start_time && s.start_time.substring(0, 5) === time[0] &&
-                                s.end_time && s.end_time.substring(0, 5) === time[1]
-                            );
+                            // Find schedules for this exact time slot AND overlapping schedules
+                            const schedulesForSlot = schedules.filter(schedule => {
+                                if (schedule.day_of_week !== day) return false;
+
+                                const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                                const scheduleEnd = schedule.end_time ? schedule.end_time.substring(0, 5) : '';
+
+                                if (!scheduleStart || !scheduleEnd) return false;
+
+                                // Check if schedule starts in this exact time slot OR overlaps with it
+                                const slotStart = time[0];
+                                const slotEnd = time[1];
+
+                                const scheduleStartsInSlot = (scheduleStart === slotStart);
+                                const scheduleOverlapsSlot = (
+                                    scheduleStart < slotEnd &&
+                                    scheduleEnd > slotStart
+                                );
+
+                                return scheduleStartsInSlot || scheduleOverlapsSlot;
+                            });
 
                             if (schedulesForSlot.length > 0) {
-                                // Create a container for multiple schedules
                                 const schedulesContainer = document.createElement('div');
-                                schedulesContainer.className = 'schedules-container space-y-1';
+                                schedulesContainer.className = 'space-y-1';
 
                                 schedulesForSlot.forEach(schedule => {
-                                    const scheduleCard = createSafeScheduleCard(schedule);
+                                    const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+                                    const isStartCell = (scheduleStart === time[0]);
+
+                                    const scheduleCard = createSafeScheduleCard(schedule, isStartCell);
                                     schedulesContainer.appendChild(scheduleCard);
                                 });
 
@@ -2419,7 +2578,7 @@ if ($userDepartmentId) {
                                 // Add button for empty slot
                                 const addButton = document.createElement('button');
                                 addButton.innerHTML = '<i class="fas fa-plus text-sm"></i>';
-                                addButton.className = 'w-full h-full text-gray-400 hover:text-gray-600 hover:bg-yellow-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-yellow-400 transition-all duration-200 no-print flex items-center justify-center p-2';
+                                addButton.className = 'w-full h-full text-gray-400 hover:text-gray-600 hover:bg-yellow-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-yellow-400 transition-all duration-200 no-print flex items-center justify-center p-2 min-h-[100px]';
                                 addButton.onclick = () => openAddModalForSlot(day, time[0], time[1]);
                                 cell.appendChild(addButton);
                             }
@@ -2433,78 +2592,17 @@ if ($userDepartmentId) {
                     initializeDragAndDrop();
                 }
 
-                // Update view grid with similar fixes
-                const viewGrid = document.getElementById('timetableGrid');
-                if (viewGrid) {
-                    viewGrid.innerHTML = '';
+                // Update list view
+                updateListView(schedules);
 
-                    const times = [
-                        ['07:30', '08:30'],
-                        ['08:30', '10:00'],
-                        ['10:00', '11:00'],
-                        ['11:00', '12:30'],
-                        ['12:30', '13:30'],
-                        ['13:00', '14:30'],
-                        ['14:30', '15:30'],
-                        ['15:30', '17:00'],
-                        ['17:00', '18:00']
-                    ];
-
-                    times.forEach(time => {
-                        // Calculate row span
-                        const duration = (new Date(`${new Date().toISOString().split('T')[0]} ${time[1]}`) - new Date(`${new Date().toISOString().split('T')[0]} ${time[0]}`)) / 1000;
-                        const rowSpan = duration / 7200;
-                        const minHeight = rowSpan * 80;
-
-                        const row = document.createElement('div');
-                        row.className = `grid grid-cols-7 min-h-[${minHeight}px] hover:bg-gray-50 transition-colors duration-200`;
-                        row.style.gridRow = `span ${rowSpan}`;
-
-                        // Time cell
-                        const timeCell = document.createElement('div');
-                        timeCell.className = 'px-4 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 flex items-center';
-                        timeCell.setAttribute('rowspan', rowSpan);
-                        timeCell.textContent = `${formatTime(time[0])} - ${formatTime(time[1])}`;
-                        row.appendChild(timeCell);
-
-                        // Day cells
-                        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].forEach(day => {
-                            const cell = document.createElement('div');
-                            cell.className = `px-2 py-2 border-r border-gray-200 last:border-r-0 min-h-[${minHeight}px] relative schedule-cell`;
-
-                            // Find ALL schedules for this time slot
-                            const daySchedules = schedules.filter(s =>
-                                s.day_of_week === day &&
-                                s.start_time && s.start_time.substring(0, 5) === time[0] &&
-                                s.end_time && s.end_time.substring(0, 5) === time[1]
-                            );
-
-                            if (daySchedules.length > 0) {
-                                // Create container for multiple schedule items
-                                const schedulesContainer = document.createElement('div');
-                                schedulesContainer.className = 'schedules-container space-y-1';
-
-                                daySchedules.forEach(schedule => {
-                                    const scheduleItem = createSafeScheduleItem(schedule);
-                                    schedulesContainer.appendChild(scheduleItem);
-                                });
-
-                                cell.appendChild(schedulesContainer);
-                            }
-
-                            row.appendChild(cell);
-                        });
-
-                        viewGrid.appendChild(row);
-                    });
-                }
+                // Update view schedule tab
+                updateViewScheduleTab(schedules);
             }
 
-            // Safe function to create schedule card for manual tab
-            function createSafeScheduleCard(schedule) {
+            // Updated function to create schedule card with continuation support
+            function createSafeScheduleCard(schedule, isStartCell = true) {
                 const card = document.createElement('div');
 
-                // Use the same color system as PHP
                 const colors = [
                     'bg-blue-100 border-blue-300 text-blue-800',
                     'bg-green-100 border-green-300 text-green-800',
@@ -2513,59 +2611,62 @@ if ($userDepartmentId) {
                     'bg-pink-100 border-pink-300 text-pink-800'
                 ];
 
-                // Generate consistent color based on schedule_id or random
                 const colorIndex = schedule.schedule_id ?
                     (parseInt(schedule.schedule_id) % colors.length) :
                     Math.floor(Math.random() * colors.length);
                 const colorClass = colors[colorIndex];
 
-                card.className = `schedule-card ${colorClass} p-2 rounded-lg border-l-4 draggable cursor-move w-full`;
+                card.className = `schedule-card ${colorClass} p-2 rounded-lg border-l-4 draggable cursor-move text-xs`;
                 card.draggable = true;
                 card.dataset.scheduleId = schedule.schedule_id || '';
                 card.dataset.yearLevel = schedule.year_level || '';
                 card.dataset.sectionName = schedule.section_name || '';
                 card.dataset.roomName = schedule.room_name || 'Online';
 
-                card.ondragstart = handleDragStart;
-                card.ondragend = handleDragEnd;
+                // Apply opacity for continuation schedules
+                if (!isStartCell) {
+                    card.style.opacity = '0.6';
+                }
 
-                // Safe content creation - match PHP structure exactly
                 card.innerHTML = `
-                    <div class="flex justify-between items-start mb-1">
-                        <div class="font-semibold text-xs truncate flex-1">
-                            ${schedule.course_code || ''}
-                        </div>
-                        <div class="flex space-x-1 ml-2">
-                            <button onclick="editSchedule('${schedule.schedule_id || ''}')" class="text-yellow-600 hover:text-yellow-700 text-xs no-print flex-shrink-0">
-                                <i class="fas fa-edit"></i>
-                            </button>
-                            <button onclick="openDeleteSingleModal(
-                                '${schedule.schedule_id || ''}', 
-                                '${schedule.course_code || ''}', 
-                                '${schedule.section_name || ''}', 
-                                '${schedule.day_of_week || ''}', 
-                                '${schedule.start_time ? formatTime(schedule.start_time.substring(0, 5)) : ''}', 
-                                '${schedule.end_time ? formatTime(schedule.end_time.substring(0, 5)) : ''}'
-                            )" class="text-red-600 hover:text-red-700 text-xs no-print flex-shrink-0">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="text-xs opacity-90 truncate mb-1">
-                        ${schedule.section_name || ''}
-                    </div>
-                    <div class="text-xs opacity-75 truncate">
-                        ${schedule.faculty_name || ''}
-                    </div>
-                    <div class="text-xs opacity-75 truncate">
-                        ${schedule.room_name || 'Online'}
-                    </div>
-                    <div class="text-xs font-medium mt-1 hidden sm:block">
-                        ${schedule.start_time && schedule.end_time ? 
-                            `${formatTime(schedule.start_time.substring(0, 5))} - ${formatTime(schedule.end_time.substring(0, 5))}` : 
-                            ''}
-                    </div>
-                `;
+        <div class="flex justify-between items-start mb-1">
+            <div class="font-semibold truncate flex-1">
+                ${schedule.course_code || ''}
+                ${!isStartCell ? '<span class="text-xs text-gray-500">(cont.)</span>' : ''}
+            </div>
+            ${isStartCell ? `
+            <div class="flex space-x-1 flex-shrink-0 ml-1">
+                <button onclick="editSchedule('${schedule.schedule_id || ''}')" class="text-yellow-600 hover:text-yellow-700 no-print">
+                    <i class="fas fa-edit text-xs"></i>
+                </button>
+                <button onclick="openDeleteSingleModal(
+                    '${schedule.schedule_id || ''}', 
+                    '${schedule.course_code || ''}', 
+                    '${schedule.section_name || ''}', 
+                    '${schedule.day_of_week || ''}', 
+                    '${schedule.start_time ? formatTime(schedule.start_time.substring(0, 5)) : ''}', 
+                    '${schedule.end_time ? formatTime(schedule.end_time.substring(0, 5)) : ''}'
+                )" class="text-red-600 hover:text-red-700 no-print">
+                    <i class="fas fa-trash text-xs"></i>
+                </button>
+            </div>
+            ` : ''}
+        </div>
+        <div class="opacity-90 truncate">
+            ${schedule.section_name || ''}
+        </div>
+        <div class="opacity-75 truncate">
+            ${schedule.faculty_name || ''}
+        </div>
+        <div class="opacity-75 truncate">
+            ${schedule.room_name || 'Online'}
+        </div>
+        <div class="font-medium mt-1 hidden sm:block">
+            ${schedule.start_time && schedule.end_time ? 
+                `${formatTime(schedule.start_time.substring(0, 5))} - ${formatTime(schedule.end_time.substring(0, 5))}` : 
+                ''}
+        </div>
+    `;
 
                 return card;
             }
@@ -2778,6 +2879,39 @@ if ($userDepartmentId) {
                 const reportModal = document.getElementById('report-modal');
                 reportModal.classList.add('hidden');
             }
+
+            // Debug function to check schedule data
+            function debugSchedules() {
+                console.log("=== SCHEDULE DEBUG INFO ===");
+                console.log("Total schedules:", window.scheduleData.length);
+
+                // Check for 7:30-10:30 schedules specifically
+                const targetSchedules = window.scheduleData.filter(s => {
+                    const start = s.start_time ? s.start_time.substring(0, 5) : '';
+                    const end = s.end_time ? s.end_time.substring(0, 5) : '';
+                    return start === '07:30' && end === '10:30';
+                });
+
+                console.log("7:30-10:30 schedules:", targetSchedules);
+
+                // Check all time formats
+                window.scheduleData.forEach(s => {
+                    console.log(`Schedule: ${s.course_code} | ${s.day_of_week} | ${s.start_time} - ${s.end_time}`);
+                });
+
+                console.log("=== END DEBUG ===");
+            }
+
+            // Call this in your DOMContentLoaded to check initial state
+            document.addEventListener('DOMContentLoaded', function() {
+                // ... existing code ...
+
+                // Add debug
+                setTimeout(() => {
+                    debugSchedules();
+                    safeUpdateScheduleDisplay(window.scheduleData);
+                }, 1000);
+            });
 
             // Initialize page
             document.addEventListener('DOMContentLoaded', function() {

@@ -247,7 +247,8 @@ function closeDeleteAllModal() {
 
 function confirmDeleteAllSchedules() {
   console.log("Confirming deletion of all schedules...");
-  const deleteButton = document.querySelector('#delete-all-modal button[onclick="confirmDeleteAllSchedules()"]');
+
+  const deleteButton = document.querySelector('#delete-confirmation-modal button[onclick="confirmDeleteAllSchedules()"]');
   const originalText = deleteButton ? deleteButton.innerHTML : "";
 
   if (deleteButton) {
@@ -255,12 +256,14 @@ function confirmDeleteAllSchedules() {
     deleteButton.disabled = true;
   }
 
+  // Use the existing 'delete_schedules' action instead of 'delete_all_schedules'
   fetch("/chair/generate-schedules", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      action: "delete_schedules",
+      action: "delete_schedules", // Use the existing action name
       confirm: "true",
+      semester_id: window.currentSemester?.semester_id || ""
     }),
   })
     .then((response) => {
@@ -291,7 +294,7 @@ function confirmDeleteAllSchedules() {
         deleteButton.innerHTML = originalText;
         deleteButton.disabled = false;
       }
-      closeDeleteAllModal();
+      closeDeleteModal();
     });
 }
 
@@ -1263,45 +1266,65 @@ function saveAllChanges() {
     });
 }
 
+// Enhanced filter function for manual tab
 function filterSchedulesManual() {
-  const yearLevel = document.getElementById("filter-year-manual").value;
-  const section = document.getElementById("filter-section-manual").value;
-  const room = document.getElementById("filter-room-manual").value;
-  console.log("Filtering by:", { yearLevel, section, room });
+  const yearLevel = document.getElementById('filter-year-manual').value;
+  const section = document.getElementById('filter-section-manual').value;
+  const room = document.getElementById('filter-room-manual').value;
 
-  const scheduleCards = document.querySelectorAll("#schedule-grid .schedule-card");
-  const dropZones = document.querySelectorAll("#schedule-grid .drop-zone");
+  const scheduleCards = document.querySelectorAll('#schedule-grid .schedule-card');
+  const dropZones = document.querySelectorAll('#schedule-grid .drop-zone');
 
-  scheduleCards.forEach((card) => {
-    const cardYearLevel = card.getAttribute("data-year-level");
-    const cardSectionName = card.getAttribute("data-section-name");
-    const cardRoomName = card.getAttribute("data-room-name");
+  console.log("Filtering with:", { yearLevel, section, room });
+
+  scheduleCards.forEach(card => {
+    const cardYearLevel = card.getAttribute('data-year-level');
+    const cardSectionName = card.getAttribute('data-section-name');
+    const cardRoomName = card.getAttribute('data-room-name');
 
     const matchesYear = !yearLevel || cardYearLevel === yearLevel;
     const matchesSection = !section || cardSectionName === section;
     const matchesRoom = !room || cardRoomName === room;
 
     if (matchesYear && matchesSection && matchesRoom) {
-      card.style.display = "block";
-      card.parentElement.style.display = "block";
+      card.style.display = 'block';
+      card.parentElement.style.display = 'block';
     } else {
-      card.style.display = "none";
+      card.style.display = 'none';
     }
   });
 
-  dropZones.forEach((zone) => {
-    const card = zone.querySelector(".schedule-card");
+  // Update add buttons visibility
+  dropZones.forEach(zone => {
+    const card = zone.querySelector('.schedule-card');
     const addButton = zone.querySelector('button[onclick*="openAddModalForSlot"]');
+
     if (addButton) {
-      if (card && card.style.display === "none") {
-        addButton.style.display = "block";
-      } else if (card && card.style.display === "block") {
-        addButton.style.display = "none";
-      } else {
-        addButton.style.display = "block";
-      }
+      const hasVisibleCard = card && card.style.display !== 'none';
+      addButton.style.display = hasVisibleCard ? 'none' : 'block';
     }
   });
+
+  // Also update list view filters
+  updateListViewWithFilters(yearLevel, section, room);
+}
+
+// Helper function to filter list view
+function updateListViewWithFilters(yearLevel, section, room) {
+    const rows = document.querySelectorAll('#list-view .schedule-row');
+    
+    rows.forEach(row => {
+        const scheduleId = row.dataset.scheduleId;
+        const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
+        
+        if (schedule) {
+            const matchesYear = !yearLevel || schedule.year_level === yearLevel;
+            const matchesSection = !section || schedule.section_name === section;
+            const matchesRoom = !room || (schedule.room_name || 'Online') === room;
+            
+            row.style.display = (matchesYear && matchesSection && matchesRoom) ? '' : 'none';
+        }
+    });
 }
 
 function clearFiltersManual() {
@@ -1431,6 +1454,7 @@ document.addEventListener("DOMContentLoaded", function () {
       resetConflictField("course-name");
     });
   }
+
 
   // Ensure scheduleData is always an array
   if (!Array.isArray(window.scheduleData)) window.scheduleData = [];
@@ -1615,57 +1639,6 @@ function closeDeleteModal() {
   }
 }
 
-function confirmDeleteAllSchedules() {
-  console.log("Confirming deletion of all schedules...");
-
-  const deleteButton = document.querySelector('#delete-confirmation-modal button[onclick="confirmDeleteAllSchedules()"]');
-  const originalText = deleteButton ? deleteButton.innerHTML : "";
-
-  if (deleteButton) {
-    deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Deleting...';
-    deleteButton.disabled = true;
-  }
-
-  fetch("/chair/generate-schedules", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      action: "delete_all_schedules",
-      confirm: "true",
-      semester_id: window.currentSemester?.semester_id || ""
-    }),
-  })
-    .then((response) => {
-      console.log("Delete all response status:", response.status);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      return response.json();
-    })
-    .then((data) => {
-      console.log("Delete all response data:", data);
-      if (data.success) {
-        showNotification("All schedules deleted successfully!", "success");
-        window.scheduleData = [];
-        safeUpdateScheduleDisplay([]);
-        buildCurrentSemesterCourseMappings();
-
-        const generationResults = document.getElementById("generation-results");
-        if (generationResults) generationResults.classList.add("hidden");
-      } else {
-        showNotification("Error: " + (data.message || "Failed to delete all schedules"), "error");
-      }
-    })
-    .catch((error) => {
-      console.error("Delete all error:", error);
-      showNotification("Error deleting all schedules: " + error.message, "error");
-    })
-    .finally(() => {
-      if (deleteButton) {
-        deleteButton.innerHTML = originalText;
-        deleteButton.disabled = false;
-      }
-      closeDeleteModal();
-    });
-}
 
 // Enhanced event listeners setup
 function setupEnhancedEventListeners() {
