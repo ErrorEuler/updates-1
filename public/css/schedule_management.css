@@ -780,3 +780,36 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Enhanced time input styling */
+input[type="time"] {
+  font-family: monospace;
+}
+
+.duration-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.duration-btn {
+  flex: 1;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  background: white;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.duration-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.duration-btn.active {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}

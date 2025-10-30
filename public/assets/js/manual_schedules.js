@@ -149,21 +149,27 @@ function handleDragLeave(e) {
   }
 }
 
-// Enhanced calculateEndTime for any time input
+// Enhanced calculateEndTime that handles any time format
 function calculateEndTime(startTime, durationMinutes = 60) {
   // Handle various time formats
   let formattedStartTime = startTime;
-  if (!formattedStartTime.includes(':')) {
-    // If it's just numbers like "730", convert to "07:30"
+
+  // If it's in HHMM format without colon, add colon
+  if (!formattedStartTime.includes(':') && formattedStartTime.length >= 3) {
     const timeStr = formattedStartTime.padStart(4, '0');
     formattedStartTime = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4);
   }
 
+  // Parse time
   const [hours, minutes] = formattedStartTime.split(':').map(Number);
   const startDate = new Date(2000, 0, 1, hours, minutes);
   const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
 
-  return endDate.toTimeString().substring(0, 5);
+  // Format back to HH:MM
+  const endHours = endDate.getHours().toString().padStart(2, '0');
+  const endMinutes = endDate.getMinutes().toString().padStart(2, '0');
+
+  return `${endHours}:${endMinutes}`;
 }
 
 // Enhanced drop handler for flexible time system
@@ -536,6 +542,7 @@ function showNotification(message, type = "success", duration = 5000) {
 }
 
 // Enhanced autoFillCourseName with better messaging
+// Enhanced autoFillCourseName with time calculation based on course units
 function autoFillCourseName(courseCode) {
   const courseNameInput = document.getElementById("course-name");
   if (!courseCode || !courseNameInput) return;
@@ -554,6 +561,15 @@ function autoFillCourseName(courseCode) {
     const course = currentSemesterCourses[enteredCode];
     courseNameInput.value = course.name;
     console.log("Found course:", course);
+
+    // Auto-calculate end time based on course units
+    if (course.units) {
+      const durationMinutes = course.units * 60; // 1 unit = 1 hour
+      setTimeout(() => {
+        calculateAutoEndTime();
+        showNotification(`Course detected: ${course.units} unit${course.units !== 1 ? 's' : ''} (${durationMinutes} minutes)`, 'info', 3000);
+      }, 100);
+    }
 
     // Show success message for valid course
     if (!conflict) {
@@ -650,15 +666,34 @@ function resetSectionFilter() {
   optgroups.forEach((optgroup) => optgroup.style.display = "");
 }
 
+// Enhanced updateTimeFields for flexible time inputs
 function updateTimeFields() {
-  const startTimeSelect = document.getElementById("start-time");
-  const endTimeSelect = document.getElementById("end-time");
-  const modalStartTime = document.getElementById("modal-start-time");
-  const modalEndTime = document.getElementById("modal-end-time");
+  const startTimeInput = document.getElementById('start-time');
+  const endTimeInput = document.getElementById('end-time');
+  const modalStartTime = document.getElementById('modal-start-time');
+  const modalEndTime = document.getElementById('modal-end-time');
 
-  if (startTimeSelect && modalStartTime) modalStartTime.value = startTimeSelect.value + ":00";
-  if (endTimeSelect && modalEndTime) modalEndTime.value = endTimeSelect.value + ":00";
+  if (startTimeInput && modalStartTime) {
+    // Ensure time format includes seconds
+    let startTime = startTimeInput.value;
+    if (startTime && !startTime.includes(':')) {
+      // Convert HHMM to HH:MM
+      const timeStr = startTime.padStart(4, '0');
+      startTime = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4);
+    }
+    modalStartTime.value = startTime ? startTime + ':00' : '';
+  }
+
+  if (endTimeInput && modalEndTime) {
+    let endTime = endTimeInput.value;
+    if (endTime && !endTime.includes(':')) {
+      const timeStr = endTime.padStart(4, '0');
+      endTime = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4);
+    }
+    modalEndTime.value = endTime ? endTime + ':00' : '';
+  }
 }
+
 
 function updateDayField() {
   const daySelect = document.getElementById("day-select");
@@ -666,12 +701,20 @@ function updateDayField() {
   if (daySelect && modalDay) modalDay.value = daySelect.value;
 }
 
-// Enhanced form submission with comprehensive validation
+// Enhanced form submission with time validation
 function handleScheduleSubmit(e) {
   e.preventDefault();
   console.log("Submitting schedule form with enhanced validation...");
 
   resetConflictStyles();
+
+  // Validate time formats
+  const startTimeInput = document.getElementById('start-time');
+  const endTimeInput = document.getElementById('end-time');
+
+  if (!validateTimeInput(startTimeInput) || !validateTimeInput(endTimeInput)) {
+    return;
+  }
 
   const currentSemesterId = window.currentSemester?.semester_id;
   if (!currentSemesterId) {
@@ -720,11 +763,25 @@ function handleScheduleSubmit(e) {
     return;
   }
 
-  // Validate time logic
-  if (data.start_time >= data.end_time) {
+  // Enhanced time validation
+  const startTime = data.start_time.substring(0, 5);
+  const endTime = data.end_time.substring(0, 5);
+
+  if (startTime >= endTime) {
     highlightConflictField("start-time", "Start time must be before end time");
     highlightConflictField("end-time", "End time must be after start time");
     showNotification("End time must be after start time.", "error");
+    return;
+  }
+
+  // Check minimum class duration (at least 30 minutes)
+  const start = new Date(`2000-01-01T${startTime}:00`);
+  const end = new Date(`2000-01-01T${endTime}:00`);
+  const durationMinutes = (end - start) / (1000 * 60);
+
+  if (durationMinutes < 30) {
+    highlightConflictField("end-time", "Minimum class duration is 30 minutes");
+    showNotification("Class duration must be at least 30 minutes.", "error");
     return;
   }
 
@@ -1786,4 +1843,114 @@ function getRelatedFields() {
     room_name: formData.get("room_name") || "",
     section_name: formData.get("section_name") || ""
   };
+}
+
+// Enhanced time calculation for academic scheduling
+function calculateAutoEndTime() {
+  const startTimeInput = document.getElementById('start-time');
+  const endTimeInput = document.getElementById('end-time');
+
+  if (!startTimeInput || !startTimeInput.value) return;
+
+  const startTime = startTimeInput.value;
+  const [hours, minutes] = startTime.split(':').map(Number);
+
+  // Default to 1 hour duration
+  let durationMinutes = 60;
+
+  // Check if we have course info to determine duration
+  const courseCode = document.getElementById('course-code')?.value;
+  if (courseCode && window.currentSemesterCourses[courseCode.toUpperCase()]) {
+    const course = window.currentSemesterCourses[courseCode.toUpperCase()];
+    // Calculate duration based on course units (3 units = 3 hours)
+    if (course.units) {
+      durationMinutes = course.units * 60;
+    }
+  }
+
+  const endTime = calculateEndTime(startTime, durationMinutes);
+  endTimeInput.value = endTime;
+
+  // Update hidden fields
+  updateTimeFields();
+
+  // Show duration info
+  showDurationInfo(durationMinutes);
+}
+
+// Set specific duration
+function setDuration(minutes) {
+  const startTimeInput = document.getElementById('start-time');
+  const endTimeInput = document.getElementById('end-time');
+
+  if (!startTimeInput || !startTimeInput.value) {
+    showNotification('Please set a start time first', 'warning');
+    return;
+  }
+
+  const startTime = startTimeInput.value;
+  const endTime = calculateEndTime(startTime, minutes);
+
+  endTimeInput.value = endTime;
+  updateTimeFields();
+  showDurationInfo(minutes);
+}
+
+// Show duration information
+function showDurationInfo(minutes) {
+  const hours = minutes / 60;
+  let existingInfo = document.getElementById('duration-info');
+
+  if (!existingInfo) {
+    existingInfo = document.createElement('div');
+    existingInfo.id = 'duration-info';
+    existingInfo.className = 'mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm';
+    document.getElementById('end-time').parentNode.appendChild(existingInfo);
+  }
+
+  existingInfo.innerHTML = `
+        <div class="flex items-center justify-between">
+            <span class="text-blue-700">
+                <i class="fas fa-clock mr-1"></i>
+                Duration: ${hours} hour${hours !== 1 ? 's' : ''} (${minutes} minutes)
+            </span>
+            <span class="text-blue-600 font-medium">
+                ${hours} unit${hours !== 1 ? 's' : ''}
+            </span>
+        </div>
+    `;
+}
+
+
+// Enhanced time validation
+function validateTimeInput(input) {
+  const timeValue = input.value.trim();
+
+  if (!timeValue) return true;
+
+  // Allow HH:MM format
+  if (timeValue.includes(':')) {
+    const [hours, minutes] = timeValue.split(':').map(Number);
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      return true;
+    }
+  }
+
+  // Allow HHMM format
+  if (/^\d{3,4}$/.test(timeValue)) {
+    const timeStr = timeValue.padStart(4, '0');
+    const hours = parseInt(timeStr.substring(0, 2));
+    const minutes = parseInt(timeStr.substring(2, 4));
+
+    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+      // Auto-format to HH:MM
+      input.value = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      return true;
+    }
+  }
+
+  // Invalid format
+  showNotification('Please enter time in HH:MM format (e.g., 07:30 or 730)', 'error');
+  input.focus();
+  return false;
 }

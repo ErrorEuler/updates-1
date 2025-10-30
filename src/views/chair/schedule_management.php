@@ -911,64 +911,29 @@ if ($userDepartmentId) {
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">Start Time</label>
-                            <select id="start-time" name="start_time_display"
+                            <input type="time" id="start-time" name="start_time_display"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 validate-on-change"
-                                onchange="updateTimeFields()" required>
-                                <option value="07:30">7:30 AM</option>
-                                <option value="08:30">8:30 AM</option>
-                                <option value="09:00">9:00 AM</option>
-                                <option value="09:30">9:30 AM</option>
-                                <option value="10:30">10:30 AM</option>
-                                <option value="10:30">10:30 AM</option>
-                                <option value="11:00">11:00 AM</option>
-                                <option value="11:30">11:30 AM</option>
-                                <option value="12:00">12:00 PM</option>
-                                <option value="12:30">12:30 PM</option>
-                                <option value="13:00">1:00 PM</option>
-                                <option value="13:30">1:30 PM</option>
-                                <option value="14:00">2:00 PM</option>
-                                <option value="14:30">2:30 PM</option>
-                                <option value="15:00">3:00 PM</option>
-                                <option value="15:30">3:30 PM</option>
-                                <option value="16:00">4:00 PM</option>
-                                <option value="16:30">4:30 PM</option>
-                                <option value="17:00">5:00 PM</option>
-                                <option value="17:30">5:30 PM</option>
-                                <option value="18:00">6:00 PM</option>
-                                <option value="18:30">6:30 PM</option>
-                                <option value="19:00">7:00 PM</option>
-                                <option value="19:30">7:30 PM</option>
-                            </select>
+                                onchange="updateTimeFields(); calculateAutoEndTime()"
+                                step="300" min="07:00" max="21:00" required>
+                            <p class="text-xs text-gray-500 mt-1">Format: HH:MM (24-hour)</p>
                         </div>
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-2">End Time</label>
-                            <select id="end-time" name="end_time_display"
+                            <input type="time" id="end-time" name="end_time_display"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 validate-on-change"
-                                onchange="updateTimeFields()" required>
-                                <option value="08:30">8:30 AM</option>
-                                <option value="09:00">9:00 AM</option>
-                                <option value="09:30">9:30 AM</option>
-                                <option value="10:30">10:30 AM</option>
-                                <option value="10:30">10:30 AM</option>
-                                <option value="11:00">11:00 AM</option>
-                                <option value="11:30">11:30 AM</option>
-                                <option value="12:00">12:00 PM</option>
-                                <option value="12:30">12:30 PM</option>
-                                <option value="13:00">13:00 PM</option>
-                                <option value="13:30">1:30 PM</option>
-                                <option value="14:00">2:00 PM</option>
-                                <option value="14:30">2:30 PM</option>
-                                <option value="15:00">3:00 PM</option>
-                                <option value="15:30">3:30 PM</option>
-                                <option value="16:00">4:00 PM</option>
-                                <option value="16:30">4:30 PM</option>
-                                <option value="17:00">5:00 PM</option>
-                                <option value="17:30">5:30 PM</option>
-                                <option value="18:00">6:00 PM</option>
-                                <option value="18:30">6:30 PM</option>
-                                <option value="19:00">7:00 PM</option>
-                                <option value="19:30">7:30 PM</option>
-                            </select>
+                                onchange="updateTimeFields()"
+                                step="300" min="07:00" max="21:00" required>
+                            <div class="flex space-x-2 mt-2">
+                                <button type="button" onclick="setDuration(60)" class="flex-1 px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs rounded transition-colors">
+                                    1hr
+                                </button>
+                                <button type="button" onclick="setDuration(90)" class="flex-1 px-2 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs rounded transition-colors">
+                                    1.5hr
+                                </button>
+                                <button type="button" onclick="setDuration(180)" class="flex-1 px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 text-xs rounded transition-colors">
+                                    3hr
+                                </button>
+                            </div>
                         </div>
                     </div>
 
