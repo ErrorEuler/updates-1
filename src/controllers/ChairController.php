@@ -970,7 +970,7 @@ class ChairController
             return false;
         }
     }
-    
+
     // deleting a single schedule
     private function deleteSingleSchedule($scheduleId, $departmentId)
     {
@@ -2021,6 +2021,35 @@ class ChairController
         exit;
     }
 
+    private function getScheduleColor($schedule)
+    {
+        $colors = [
+            'bg-blue-100 border-blue-300 text-blue-800',
+            'bg-green-100 border-green-300 text-green-800',
+            'bg-purple-100 border-purple-300 text-purple-800',
+            'bg-orange-100 border-orange-300 text-orange-800',
+            'bg-pink-100 border-pink-300 text-pink-800'
+        ];
+
+        if (isset($schedule['schedule_id'])) {
+            $index = abs(crc32($schedule['schedule_id'])) % count($colors);
+            return $colors[$index];
+        }
+
+        return $colors[array_rand($colors)];
+    }
+
+    private function getSchedulePositionInSlot($scheduleStart, $scheduleEnd, $slotStart, $slotEnd)
+    {
+        if ($scheduleStart === $slotStart) {
+            return 'start';
+        } elseif ($scheduleEnd === $slotEnd) {
+            return 'end';
+        } else {
+            return 'middle';
+        }
+    }
+
     // Enhanced complete conflict checking
     private function performCompleteConflictCheck($data, $departmentId, $currentSemester, $collegeId)
     {
@@ -2536,6 +2565,9 @@ class ChairController
             return [];
         }
     }
+
+
+
     // Add this method to your ChairController class
     private function handleDeleteSchedules($currentSemester)
     {

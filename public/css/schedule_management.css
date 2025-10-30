@@ -813,3 +813,106 @@ input[type="time"] {
   color: white;
   border-color: #3b82f6;
 }
+
+
+/* Enhanced schedule grid styles - FIXED */
+.schedule-cell {
+  min-height: 80px;
+  position: relative;
+}
+
+.schedule-card {
+  transition: all 0.2s ease-in-out;
+  cursor: move !important;
+  opacity: 1 !important;
+}
+
+.schedule-card.dragging {
+  opacity: 0.4 !important;
+  transform: scale(0.95);
+}
+
+.schedule-card:hover {
+  opacity: 1 !important;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+/* Ensure edit/delete buttons are always accessible */
+.edit-schedule-btn,
+.delete-schedule-btn {
+  opacity: 0.8 !important;
+  display: inline-block !important;
+}
+
+.schedule-card:hover .edit-schedule-btn,
+.schedule-card:hover .delete-schedule-btn {
+  opacity: 1 !important;
+}
+
+/* Drop zone highlighting */
+.drop-zone.drag-over {
+  background-color: rgba(34, 197, 94, 0.1) !important;
+  border: 2px dashed #22c55e !important;
+}
+
+/* Remove any opacity restrictions from continuation cards */
+[class*="bg-"] {
+  opacity: 1 !important;
+}
+
+/* Make sure all cards look the same */
+.full-access-card {
+  opacity: 1 !important;
+  cursor: move !important;
+}
+
+/* Fix for any hidden buttons */
+.schedule-card button {
+  display: inline-block !important;
+  opacity: 0.8 !important;
+}
+
+.schedule-card:hover button {
+  opacity: 1 !important;
+}
+
+
+
+
+
+
+
+/* 🚀 FORCE action buttons to be visible */
+.schedule-card .flex.space-x-1.flex-shrink-0.ml-1 {
+  display: flex !important;
+  opacity: 1 !important;
+}
+
+.schedule-card .flex.space-x-1.flex-shrink-0.ml-1 button {
+  display: inline-block !important;
+  opacity: 0.8 !important;
+}
+
+.schedule-card:hover .flex.space-x-1.flex-shrink-0.ml-1 button {
+  opacity: 1 !important;
+}
+
+/* Ensure the action buttons container is always visible */
+.flex.justify-between.items-start.mb-1 {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+}
+
+/* Make sure buttons don't get hidden by any CSS */
+.schedule-card button.no-print {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 0.8 !important;
+}
+
+.schedule-card:hover button.no-print {
+  opacity: 1 !important;
+}

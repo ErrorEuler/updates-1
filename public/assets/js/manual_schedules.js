@@ -5,9 +5,7 @@ let currentSemesterCourses = {};
 let validationTimeout;
 const DEBOUNCE_DELAY = 300;
 
-// Real-time field validator
-// Enhanced real-time field validator with better messages
-// Enhanced real-time conflict detection
+// Enhanced real-time validation with debouncing and comprehensive checks
 function validateFieldRealTime(fieldType, value, relatedFields = {}) {
   clearTimeout(validationTimeout);
   validationTimeout = setTimeout(() => {
@@ -107,12 +105,21 @@ function handleValidationResponse(fieldType, result, originalValue) {
   }
 }
 
+// Enhanced drag and drop that works for all schedule cards
 function handleDragStart(e) {
+  // Allow dragging from ANY schedule card, including continuation ones
   draggedElement = e.target.closest(".schedule-card");
   if (!draggedElement) return;
+
   e.dataTransfer.setData("text/plain", draggedElement.dataset.scheduleId);
   e.dataTransfer.effectAllowed = "move";
   draggedElement.classList.add("dragging");
+
+  // Store original position data
+  draggedElement.dataset.originalDay = draggedElement.closest('.schedule-cell').dataset.day;
+  draggedElement.dataset.originalSlotStart = draggedElement.closest('.schedule-cell').dataset.slotStart;
+  draggedElement.dataset.originalSlotEnd = draggedElement.closest('.schedule-cell').dataset.slotEnd;
+
   setTimeout(() => {
     draggedElement.style.opacity = "0.4";
   }, 0);
@@ -172,7 +179,7 @@ function calculateEndTime(startTime, durationMinutes = 60) {
   return `${endHours}:${endMinutes}`;
 }
 
-// Enhanced drop handler for flexible time system
+// Enhanced drop handler that understands schedule duration
 function handleDrop(e) {
   e.preventDefault();
   const dropZone = e.target.closest(".drop-zone");
@@ -181,9 +188,9 @@ function handleDrop(e) {
   dropZone.classList.remove("drag-over");
   const scheduleId = e.dataTransfer.getData("text/plain");
   const newDay = dropZone.dataset.day;
-  const newStartTime = dropZone.dataset.startTime;
+  const newStartTime = dropZone.dataset.startTime; // This is the slot start time
 
-  console.log("Dropping schedule:", scheduleId, "to", newDay, newStartTime);
+  console.log("Dropping schedule:", scheduleId, "to", newDay, "at slot", newStartTime);
 
   const scheduleIndex = window.scheduleData.findIndex(
     (s) => s.schedule_id == scheduleId
@@ -192,39 +199,43 @@ function handleDrop(e) {
   if (scheduleIndex !== -1) {
     const originalSchedule = window.scheduleData[scheduleIndex];
 
-    // Calculate new end time based on original duration
+    // Calculate new times based on the original duration
     const originalStart = new Date(`2000-01-01T${originalSchedule.start_time}`);
     const originalEnd = new Date(`2000-01-01T${originalSchedule.end_time}`);
     const durationMinutes = (originalEnd - originalStart) / (1000 * 60);
 
-    // Calculate new end time
+    // Use the slot start time as the new start time
     const newStart = new Date(`2000-01-01T${newStartTime}:00`);
     const newEnd = new Date(newStart.getTime() + durationMinutes * 60000);
+
+    const formattedStartTime = newStart.toTimeString().substring(0, 8);
     const formattedEndTime = newEnd.toTimeString().substring(0, 8);
 
     console.log("Time update details:", {
-      originalDuration: durationMinutes + " minutes",
-      newStart: newStartTime,
-      newEnd: formattedEndTime,
+      original: `${originalSchedule.start_time} - ${originalSchedule.end_time}`,
+      new: `${formattedStartTime} - ${formattedEndTime}`,
+      duration: durationMinutes + " minutes"
     });
 
     // Update the schedule
     window.scheduleData[scheduleIndex].day_of_week = newDay;
-    window.scheduleData[scheduleIndex].start_time = newStartTime + ":00";
+    window.scheduleData[scheduleIndex].start_time = formattedStartTime;
     window.scheduleData[scheduleIndex].end_time = formattedEndTime;
 
     // Refresh display
     safeUpdateScheduleDisplay(window.scheduleData);
-    showNotification(`Schedule moved to ${newDay} ${newStartTime}-${formattedEndTime.substring(0, 5)}`, "success");
+    showNotification(`Schedule moved to ${newDay} ${formattedStartTime.substring(0, 5)}-${formattedEndTime.substring(0, 5)}`, "success");
   }
 }
 
+// Make sure ALL schedule cards are draggable and editable
 function initializeDragAndDrop() {
   const dropZones = document.querySelectorAll(".drop-zone");
-  const draggables = document.querySelectorAll(".draggable");
+  const draggables = document.querySelectorAll(".schedule-card.draggable");
+
   console.log("Initializing drag and drop:", {
     dropZones: dropZones.length,
-    draggables: draggables.length,
+    draggables: draggables.length
   });
 
   dropZones.forEach((zone) => {
@@ -245,8 +256,39 @@ function initializeDragAndDrop() {
 
     draggable.addEventListener("dragstart", handleDragStart);
     draggable.addEventListener("dragend", handleDragEnd);
+
+    // Ensure edit buttons work
+    const editBtn = draggable.querySelector('.edit-schedule-btn');
+    const deleteBtn = draggable.querySelector('.delete-schedule-btn');
+
+    if (editBtn) {
+      editBtn.onclick = (e) => {
+        e.stopPropagation();
+        const scheduleId = draggable.dataset.scheduleId;
+        editScheduleFromAnyCell(scheduleId);
+      };
+    }
+
+    if (deleteBtn) {
+      deleteBtn.onclick = (e) => {
+        e.stopPropagation();
+        const scheduleId = draggable.dataset.scheduleId;
+        const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
+        if (schedule) {
+          openDeleteSingleModal(
+            scheduleId,
+            schedule.course_code,
+            schedule.section_name,
+            schedule.day_of_week,
+            formatTime(schedule.start_time.substring(0, 5)),
+            formatTime(schedule.end_time.substring(0, 5))
+          );
+        }
+      };
+    }
   });
 }
+
 
 function openDeleteAllModal() {
   console.log("Opening delete all modal...");
@@ -1270,7 +1312,7 @@ function openAddModalForSlot(day, startTime, endTime) {
 }
 
 function editSchedule(scheduleId) {
-  console.log("Editing schedule:", scheduleId);
+  console.log("✏️ Editing schedule:", scheduleId);
   const schedule = window.scheduleData.find((s) => s.schedule_id == scheduleId);
   if (!schedule) {
     console.error("Schedule not found:", scheduleId);
@@ -1278,7 +1320,6 @@ function editSchedule(scheduleId) {
     return;
   }
 
-  // Reset conflict styles when editing
   resetConflictField("course-code");
   resetConflictField("course-name");
 
@@ -1304,8 +1345,8 @@ function editSchedule(scheduleId) {
 
   const startTime = schedule.start_time ? schedule.start_time.substring(0, 5) : "07:30";
   const endTime = schedule.end_time ? schedule.end_time.substring(0, 5) : "08:30";
-  document.getElementById("modal-start-time").value = startTime;
-  document.getElementById("modal-end-time").value = endTime;
+  document.getElementById("modal-start-time").value = startTime + ":00";
+  document.getElementById("modal-end-time").value = endTime + ":00";
   document.getElementById("start-time").value = startTime;
   document.getElementById("end-time").value = endTime;
 
@@ -1452,16 +1493,18 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log("Manual schedules JS loaded");
   console.log("Current semester:", window.currentSemester);
   console.log("Schedule data count:", window.scheduleData?.length || 0);
+  console.log("🔄 Initializing Enhanced Manual Schedule System...");
 
-  // Force clear any corrupted schedule data on load if needed
-  if (window.scheduleData && window.scheduleData.length > 100) { // arbitrary high number
-    console.log("Cleaning up potentially corrupted schedule data on load...");
-    // You can optionally clear here if needed, but be careful
-    // window.scheduleData = [];
+  // Force clear any corrupted schedule data
+  if (window.scheduleData && window.scheduleData.length > 100) {
+    console.log("Cleaning up potentially corrupted schedule data...");
+    window.scheduleData = window.scheduleData.filter(s => s.schedule_id);
   }
 
   buildCurrentSemesterCourseMappings();
   initializeDragAndDrop();
+  initializeEnhancedDragAndDrop();
+  setupEnhancedEventListeners();
 
 
   // Modal click outside to close
@@ -1574,11 +1617,10 @@ document.addEventListener("DOMContentLoaded", function () {
   // Ensure scheduleData is always an array
   if (!Array.isArray(window.scheduleData)) window.scheduleData = [];
 
-  // Initialize with safe display
+  // Use the new refresh function
   setTimeout(() => {
-    safeUpdateScheduleDisplay(window.scheduleData);
-    setTimeout(() => initializeDragAndDrop(), 100);
-  }, 100);
+    refreshScheduleUI();
+  }, 1000);
 
   console.log("Manual schedules initialized successfully");
 
@@ -1757,7 +1799,25 @@ function closeDeleteModal() {
 
 // Enhanced event listeners setup
 function setupEnhancedEventListeners() {
-  // Faculty validation
+  console.log("🔧 Setting up enhanced event listeners...");
+
+  // Modal event listeners
+  const modal = document.getElementById("schedule-modal");
+  if (modal) {
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) closeModal();
+    });
+  }
+
+  // Delete modal event listeners
+  const deleteModal = document.getElementById("delete-confirmation-modal");
+  if (deleteModal) {
+    deleteModal.addEventListener("click", function (e) {
+      if (e.target === deleteModal) closeDeleteModal();
+    });
+  }
+
+  // Real-time validation setup
   const facultySelect = document.getElementById("faculty-name");
   if (facultySelect) {
     facultySelect.addEventListener("change", (e) => {
@@ -1765,7 +1825,6 @@ function setupEnhancedEventListeners() {
     });
   }
 
-  // Room validation
   const roomSelect = document.getElementById("room-name");
   if (roomSelect) {
     roomSelect.addEventListener("change", (e) => {
@@ -1773,7 +1832,6 @@ function setupEnhancedEventListeners() {
     });
   }
 
-  // Section validation
   const sectionSelect = document.getElementById("section-name");
   if (sectionSelect) {
     sectionSelect.addEventListener("change", (e) => {
@@ -1782,7 +1840,6 @@ function setupEnhancedEventListeners() {
     });
   }
 
-  // Day pattern validation
   const daySelect = document.getElementById("day-select");
   if (daySelect) {
     daySelect.addEventListener("change", (e) => {
@@ -1791,7 +1848,6 @@ function setupEnhancedEventListeners() {
     });
   }
 
-  // Time validation
   const startTimeSelect = document.getElementById("start-time");
   if (startTimeSelect) {
     startTimeSelect.addEventListener("change", (e) => {
@@ -1953,4 +2009,420 @@ function validateTimeInput(input) {
   showNotification('Please enter time in HH:MM format (e.g., 07:30 or 730)', 'error');
   input.focus();
   return false;
+}
+
+// Enhanced function to edit schedule from ANY cell
+function editScheduleFromAnyCell(scheduleId) {
+  console.log("✏️ Editing schedule from any cell:", scheduleId);
+
+  // Find the schedule in the data
+  const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
+  if (!schedule) {
+    console.error("Schedule not found:", scheduleId);
+    showNotification("Schedule not found", "error");
+    return;
+  }
+
+  // Use the existing edit function
+  editSchedule(scheduleId);
+}
+
+
+// Enhanced CSS injection for better visual distinction
+const enhancedStyles = `
+    .full-access-card {
+        opacity: 1 !important;
+        cursor: move !important;
+    }
+    
+    .full-access-card:hover {
+        opacity: 1 !important;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 100;
+    }
+    
+    .schedule-card.dragging {
+        opacity: 0.6 !important;
+        transform: rotate(5deg);
+    }
+    
+    .drop-zone.drag-over {
+        background: rgba(34, 197, 94, 0.1) !important;
+        border: 2px dashed #22c55e !important;
+    }
+    
+    /* Ensure all action buttons are visible */
+    .schedule-card button {
+        opacity: 0.8 !important;
+        display: block !important;
+    }
+    
+    .schedule-card:hover button {
+        opacity: 1 !important;
+    }
+    
+    /* Remove any opacity restrictions */
+    .schedule-card {
+        opacity: 1 !important;
+    }
+`;
+
+
+
+
+// Inject the enhanced styles
+const styleElement = document.createElement('style');
+styleElement.textContent = enhancedScheduleStyles;
+document.head.appendChild(styleElement);
+
+// Initialize everything
+function initializeManualScheduleSystem() {
+  console.log("🔄 Initializing Enhanced Manual Schedule System...");
+
+  buildCurrentSemesterCourseMappings();
+  initializeEnhancedDragAndDrop();
+  setupEventListeners();
+
+  // Make sure ALL schedule cards are fully accessible
+  setTimeout(() => {
+    enableFullAccessToAllScheduleCards();
+  }, 500);
+}
+
+
+// Enhanced function to make ALL schedule cards fully accessible
+function enableFullAccessToAllScheduleCards() {
+  const allScheduleCards = document.querySelectorAll('.schedule-card');
+  console.log(`🎯 Enabling full access for ${allScheduleCards.length} schedule cards`);
+
+  allScheduleCards.forEach(card => {
+    // Remove any restrictions and make fully accessible
+    card.classList.add('full-access-card');
+    card.setAttribute('data-full-access', 'true');
+    card.draggable = true;
+
+    // Remove any "(cont.)" labels and make all cards look the same
+    const contSpan = card.querySelector('span.text-gray-500');
+    if (contSpan) {
+      contSpan.remove();
+    }
+
+    // Ensure full opacity for all cards
+    card.style.opacity = '1';
+
+    // Make sure the card itself is draggable
+    card.addEventListener('dragstart', handleEnhancedDragStart);
+    card.addEventListener('dragend', handleEnhancedDragEnd);
+
+    // 🚀 FORCE action buttons to be visible
+    forceActionButtonsVisibility();
+
+    // Ensure edit/delete buttons work
+    const editBtn = card.querySelector('button[onclick*="editSchedule"]');
+    const deleteBtn = card.querySelector('button[onclick*="openDeleteSingleModal"]');
+
+    if (editBtn) {
+      editBtn.style.display = 'block';
+      editBtn.style.opacity = '1';
+      editBtn.onclick = function (e) {
+        e.stopPropagation();
+        const scheduleId = card.dataset.scheduleId;
+        console.log("Editing schedule from ANY cell:", scheduleId);
+        editScheduleFromAnyCell(scheduleId);
+      };
+    }
+
+    if (deleteBtn) {
+      deleteBtn.style.display = 'block';
+      deleteBtn.style.opacity = '1';
+      deleteBtn.onclick = function (e) {
+        e.stopPropagation();
+        const scheduleId = card.dataset.scheduleId;
+        const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
+        if (schedule) {
+          openDeleteSingleModal(
+            scheduleId,
+            schedule.course_code,
+            schedule.section_name,
+            schedule.day_of_week,
+            formatTime(schedule.start_time?.substring(0, 5) || ''),
+            formatTime(schedule.end_time?.substring(0, 5) || '')
+          );
+        }
+      };
+    }
+
+    // Make sure the card itself is draggable
+    card.addEventListener('dragstart', handleEnhancedDragStart);
+    card.addEventListener('dragend', handleEnhancedDragEnd);
+  });
+}
+
+// Enhanced drag start - works for ALL cards
+function handleEnhancedDragStart(e) {
+  draggedElement = e.target.closest('.schedule-card');
+  if (!draggedElement) return;
+
+  const scheduleId = draggedElement.dataset.scheduleId;
+  console.log("🔄 Dragging schedule:", scheduleId);
+
+  e.dataTransfer.setData("text/plain", scheduleId);
+  e.dataTransfer.effectAllowed = "move";
+  draggedElement.classList.add("dragging");
+
+  // Store original position for reference
+  const originalCell = draggedElement.closest('.schedule-cell');
+  if (originalCell) {
+    draggedElement.dataset.originalDay = originalCell.dataset.day;
+    draggedElement.dataset.originalStartTime = originalCell.dataset.startTime;
+  }
+
+  setTimeout(() => {
+    draggedElement.style.opacity = "0.4";
+  }, 0);
+}
+
+// Enhanced drag end
+function handleEnhancedDragEnd(e) {
+  if (draggedElement) {
+    draggedElement.style.opacity = "1";
+    draggedElement.classList.remove("dragging");
+  }
+  draggedElement = null;
+
+  // Remove drag-over class from all drop zones
+  document.querySelectorAll(".drop-zone.drag-over").forEach((zone) => {
+    zone.classList.remove("drag-over");
+  });
+}
+
+// Enhanced drag enter
+function handleEnhancedDragEnter(e) {
+  if (e.target.classList.contains("drop-zone")) {
+    e.target.classList.add("drag-over");
+    e.preventDefault();
+  }
+}
+
+// Enhanced drag over
+function handleEnhancedDragOver(e) {
+  if (e.target.classList.contains("drop-zone")) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }
+}
+
+// Enhanced drag leave
+function handleEnhancedDragLeave(e) {
+  if (e.target.classList.contains("drop-zone")) {
+    e.target.classList.remove("drag-over");
+  }
+}
+
+// Enhanced drop handler
+function handleEnhancedDrop(e) {
+  e.preventDefault();
+  const dropZone = e.target.closest(".drop-zone");
+  if (!dropZone || !draggedElement) return;
+
+  dropZone.classList.remove("drag-over");
+  const scheduleId = e.dataTransfer.getData("text/plain");
+  const newDay = dropZone.dataset.day;
+  const newSlotStartTime = dropZone.dataset.startTime;
+
+  console.log("🎯 Dropping schedule:", scheduleId, "to", newDay, "at slot", newSlotStartTime);
+
+  const scheduleIndex = window.scheduleData.findIndex(
+    (s) => s.schedule_id == scheduleId
+  );
+
+  if (scheduleIndex !== -1) {
+    const originalSchedule = window.scheduleData[scheduleIndex];
+
+    // Calculate new times based on the original duration
+    const originalStart = new Date(`2000-01-01T${originalSchedule.start_time}`);
+    const originalEnd = new Date(`2000-01-01T${originalSchedule.end_time}`);
+    const durationMinutes = (originalEnd - originalStart) / (1000 * 60);
+
+    // Use the slot start time as the new start time
+    const newStart = new Date(`2000-01-01T${newSlotStartTime}:00`);
+    const newEnd = new Date(newStart.getTime() + durationMinutes * 60000);
+
+    const formattedStartTime = newStart.toTimeString().substring(0, 8);
+    const formattedEndTime = newEnd.toTimeString().substring(0, 8);
+
+    console.log("⏰ Time update:", {
+      original: `${originalSchedule.start_time} - ${originalSchedule.end_time}`,
+      new: `${formattedStartTime} - ${formattedEndTime}`,
+      duration: durationMinutes + " minutes"
+    });
+
+    // Update the schedule data
+    window.scheduleData[scheduleIndex] = {
+      ...window.scheduleData[scheduleIndex],
+      day_of_week: newDay,
+      start_time: formattedStartTime,
+      end_time: formattedEndTime
+    };
+
+    // Refresh the entire display
+    refreshScheduleGrid();
+    showNotification(`✅ Schedule moved to ${newDay} ${formattedStartTime.substring(0, 5)}-${formattedEndTime.substring(0, 5)}`, "success");
+  }
+}
+
+// Refresh the entire grid
+function refreshScheduleGrid() {
+  console.log("🔄 Refreshing schedule grid...");
+
+  // Show loading state
+  const grid = document.getElementById('schedule-grid');
+  if (grid) {
+    grid.style.opacity = '0.7';
+  }
+
+  // Re-render with current data
+  setTimeout(() => {
+    safeUpdateScheduleDisplay(window.scheduleData);
+    refreshScheduleUI(); // Use the new refresh function
+
+    if (grid) {
+      grid.style.opacity = '1';
+    }
+  }, 300);
+}
+
+// Initialize enhanced drag and drop
+function initializeEnhancedDragAndDrop() {
+  const dropZones = document.querySelectorAll(".drop-zone");
+  const draggables = document.querySelectorAll(".schedule-card");
+
+  console.log("🎯 Initializing enhanced drag & drop:", {
+    dropZones: dropZones.length,
+    draggables: draggables.length
+  });
+
+  // Setup drop zones
+  dropZones.forEach((zone) => {
+    zone.removeEventListener("dragover", handleEnhancedDragOver);
+    zone.removeEventListener("dragenter", handleEnhancedDragEnter);
+    zone.removeEventListener("dragleave", handleEnhancedDragLeave);
+    zone.removeEventListener("drop", handleEnhancedDrop);
+
+    zone.addEventListener("dragover", handleEnhancedDragOver);
+    zone.addEventListener("dragenter", handleEnhancedDragEnter);
+    zone.addEventListener("dragleave", handleEnhancedDragLeave);
+    zone.addEventListener("drop", handleEnhancedDrop);
+  });
+
+  // Setup draggables
+  draggables.forEach((draggable) => {
+    draggable.removeEventListener("dragstart", handleEnhancedDragStart);
+    draggable.removeEventListener("dragend", handleEnhancedDragEnd);
+
+    draggable.addEventListener("dragstart", handleEnhancedDragStart);
+    draggable.addEventListener("dragend", handleEnhancedDragEnd);
+  });
+}
+
+// Setup event listeners
+function setupEventListeners() {
+  console.log("🔧 Setting up event listeners...");
+
+  // Modal event listeners
+  const modal = document.getElementById("schedule-modal");
+  if (modal) {
+    modal.addEventListener("click", function (e) {
+      if (e.target === modal) closeModal();
+    });
+  }
+
+  // Real-time validation setup
+  setupValidationEventListeners();
+}
+
+// 🚀 FORCE action buttons to appear on ALL schedule cards
+function forceActionButtonsVisibility() {
+  console.log("🔧 Forcing action buttons visibility...");
+
+  const allScheduleCards = document.querySelectorAll('.schedule-card');
+
+  allScheduleCards.forEach(card => {
+    // Ensure the action buttons container exists
+    let actionContainer = card.querySelector('.flex.space-x-1.flex-shrink-0.ml-1');
+
+    if (!actionContainer) {
+      // Create action buttons container if it doesn't exist
+      actionContainer = document.createElement('div');
+      actionContainer.className = 'flex space-x-1 flex-shrink-0 ml-1';
+
+      const scheduleId = card.dataset.scheduleId;
+      const schedule = window.scheduleData.find(s => s.schedule_id == scheduleId);
+
+      if (schedule) {
+        actionContainer.innerHTML = `
+                    <button onclick="event.stopPropagation(); editScheduleFromAnyCell('${scheduleId}')" 
+                            class="text-yellow-600 hover:text-yellow-700 no-print">
+                        <i class="fas fa-edit text-xs"></i>
+                    </button>
+                    <button onclick="event.stopPropagation(); openDeleteSingleModal(
+                        '${scheduleId}', 
+                        '${schedule.course_code || ''}', 
+                        '${schedule.section_name || ''}', 
+                        '${schedule.day_of_week || ''}', 
+                        '${schedule.start_time ? formatTime(schedule.start_time.substring(0, 5)) : ''}', 
+                        '${schedule.end_time ? formatTime(schedule.end_time.substring(0, 5)) : ''}'
+                    )" class="text-red-600 hover:text-red-700 no-print">
+                        <i class="fas fa-trash text-xs"></i>
+                    </button>
+                `;
+
+        // Find the title container and append action buttons
+        const titleContainer = card.querySelector('.flex.justify-between.items-start.mb-1');
+        if (titleContainer) {
+          titleContainer.appendChild(actionContainer);
+        }
+      }
+    }
+
+    // Force display and opacity of all buttons
+    const buttons = card.querySelectorAll('button');
+    buttons.forEach(button => {
+      button.style.display = 'inline-block';
+      button.style.opacity = '1';
+    });
+  });
+
+  console.log(`✅ Action buttons forced on ${allScheduleCards.length} cards`);
+}
+
+// Call this function after any DOM updates
+function refreshScheduleUI() {
+  console.log("🔄 Refreshing schedule UI...");
+
+  // Small delay to ensure DOM is ready
+  setTimeout(() => {
+    forceActionButtonsVisibility();
+    enableFullAccessToAllScheduleCards();
+    initializeEnhancedDragAndDrop();
+  }, 100);
+}
+
+// Debug function to check button visibility
+function debugButtonVisibility() {
+  console.log("🔍 Debugging button visibility...");
+
+  const cards = document.querySelectorAll('.schedule-card');
+  cards.forEach((card, index) => {
+    const scheduleId = card.dataset.scheduleId;
+    const buttons = card.querySelectorAll('button');
+    const actionContainer = card.querySelector('.flex.space-x-1.flex-shrink-0.ml-1');
+
+    console.log(`Card ${index + 1} (ID: ${scheduleId}):`, {
+      buttonsCount: buttons.length,
+      hasActionContainer: !!actionContainer,
+      actionContainerHTML: actionContainer ? actionContainer.innerHTML : 'MISSING'
+    });
+  });
 }
