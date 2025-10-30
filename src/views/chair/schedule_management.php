@@ -754,7 +754,7 @@ function getScheduleColorClass($schedule)
                     </div>
                 </div>
 
-                <!-- Weekly Timetable -->
+                <!-- Weekly Timetable - FIXED VERSION -->
                 <div class="overflow-x-auto bg-white rounded-lg shadow-sm border border-gray-200">
                     <div class="min-w-full">
                         <!-- Header with days -->
@@ -789,69 +789,126 @@ function getScheduleColorClass($schedule)
                             </div>
                         </div>
 
-                        <!-- Time slots -->
+                        <!-- Time slots - FIXED -->
                         <div id="timetableGrid" class="divide-y divide-gray-200">
-                            <?php foreach ($timeSlots as $time): ?>
-                                <?php
-                                $duration = strtotime($time[1]) - strtotime($time[0]);
-                                $rowSpan = $duration / 7200;
+                            <?php
+                            // Create proper time slots for the view tab
+                            $viewTimeSlots = [
+                                ['07:00', '08:00'],
+                                ['08:00', '09:00'],
+                                ['09:00', '10:00'],
+                                ['10:00', '11:00'],
+                                ['11:00', '12:00'],
+                                ['12:00', '13:00'],
+                                ['13:00', '14:00'],
+                                ['14:00', '15:00'],
+                                ['15:00', '16:00'],
+                                ['16:00', '17:00'],
+                                ['17:00', '18:00'],
+                                ['18:00', '19:00'],
+                                ['19:00', '20:00']
+                            ];
+
+                            $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                            ?>
+
+                            <?php if (!empty($viewTimeSlots)): ?>
+                                <?php foreach ($viewTimeSlots as $time):
+                                    // Validate time slots exist
+                                    $startTime = !empty($time[0]) ? $time[0] : '07:00';
+                                    $endTime = !empty($time[1]) ? $time[1] : '08:00';
+
+                                    $duration = strtotime($endTime) - strtotime($startTime);
+                                    $rowSpan = $duration / 1800; // 30-minute base
+                                    $minHeight = max(60, $rowSpan * 40);
                                 ?>
-                                <div class="grid grid-cols-7 min-h-[<?php echo $rowSpan * 80; ?>px] hover:bg-gray-50 transition-colors duration-200" style="grid-row: span <?php echo $rowSpan; ?>;">
-                                    <div class="px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 flex items-center sticky left-0 z-10" rowspan="<?php echo $rowSpan; ?>">
-                                        <span class="text-sm hidden sm:block"><?php echo date('g:i A', strtotime($time[0])) . ' - ' . date('g:i A', strtotime($time[1])); ?></span>
-                                        <span class="text-xs sm:hidden"><?php echo date('g:i', strtotime($time[0])) . '-' . date('g:i', strtotime($time[1])); ?></span>
-                                    </div>
-                                    <?php foreach ($days as $day): ?>
-                                        <div class="px-1 py-1 border-r border-gray-200 last:border-r-0 min-h-[<?php echo $rowSpan * 80; ?>px] relative schedule-cell"
-                                            data-day="<?php echo $day; ?>"
-                                            data-start-time="<?php echo $time[0]; ?>"
-                                            data-end-time="<?php echo $time[1]; ?>"
-                                            data-year-level=""
-                                            data-section-name=""
-                                            data-room-name="">
-                                            <?php
-                                            $schedulesForSlot = isset($scheduleGrid[$day][$time[0]]) ? $scheduleGrid[$day][$time[0]] : [];
-                                            foreach ($schedulesForSlot as $schedule) {
-                                                $scheduleStart = substr($schedule['start_time'], 0, 5);
-                                                $scheduleEnd = substr($schedule['end_time'], 0, 5);
-                                                if ($scheduleStart === $time[0]) {
-                                                    $colors = [
-                                                        'bg-blue-100 border-blue-300 text-blue-800',
-                                                        'bg-green-100 border-green-300 text-green-800',
-                                                        'bg-purple-100 border-purple-300 text-purple-800',
-                                                        'bg-orange-100 border-orange-300 text-orange-800',
-                                                        'bg-pink-100 border-pink-300 text-pink-800'
-                                                    ];
-                                                    $colorClass = $colors[array_rand($colors)];
-                                            ?>
-                                                    <div class="schedule-card <?php echo $colorClass; ?> p-2 rounded-lg border-l-4 mb-1 schedule-item"
-                                                        data-year-level="<?php echo htmlspecialchars($schedule['year_level']); ?>"
-                                                        data-section-name="<?php echo htmlspecialchars($schedule['section_name']); ?>"
-                                                        data-room-name="<?php echo htmlspecialchars($schedule['room_name'] ?? 'Online'); ?>">
-                                                        <div class="font-semibold text-xs truncate mb-1">
-                                                            <?php echo htmlspecialchars($schedule['course_code']); ?>
-                                                        </div>
-                                                        <div class="text-xs opacity-90 truncate mb-1">
-                                                            <?php echo htmlspecialchars($schedule['section_name']); ?>
-                                                        </div>
-                                                        <div class="text-xs opacity-75 truncate">
-                                                            <?php echo htmlspecialchars($schedule['faculty_name']); ?>
-                                                        </div>
-                                                        <div class="text-xs opacity-75 truncate">
-                                                            <?php echo htmlspecialchars($schedule['room_name'] ?? 'Online'); ?>
-                                                        </div>
-                                                        <div class="text-xs font-medium mt-1 hidden sm:block">
-                                                            <?php echo date('g:i A', strtotime($schedule['start_time'])) . ' - ' . date('g:i A', strtotime($schedule['end_time'])); ?>
-                                                        </div>
-                                                    </div>
-                                            <?php
-                                                }
-                                            }
-                                            ?>
+                                    <div class="grid grid-cols-7 hover:bg-gray-50 transition-colors duration-200"
+                                        style="min-height: <?php echo $minHeight; ?>px;">
+
+                                        <div class="px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 flex items-center sticky left-0 z-10">
+                                            <span class="text-sm hidden sm:block">
+                                                <?php echo date('g:i A', strtotime($startTime)) . ' - ' . date('g:i A', strtotime($endTime)); ?>
+                                            </span>
+                                            <span class="text-xs sm:hidden">
+                                                <?php echo $startTime . '-' . $endTime; ?>
+                                            </span>
                                         </div>
-                                    <?php endforeach; ?>
+
+                                        <?php foreach ($days as $day): ?>
+                                            <div class="px-1 py-1 border-r border-gray-200 last:border-r-0 relative schedule-cell min-h-[80px]"
+                                                data-day="<?php echo $day; ?>"
+                                                data-start-time="<?php echo $startTime; ?>"
+                                                data-end-time="<?php echo $endTime; ?>">
+
+                                                <?php
+                                                $schedulesForSlot = [];
+
+                                                if (!empty($schedules)) {
+                                                    foreach ($schedules as $schedule) {
+                                                        if (empty($schedule['day_of_week']) || $schedule['day_of_week'] !== $day) continue;
+
+                                                        $scheduleStart = !empty($schedule['start_time']) ? substr($schedule['start_time'], 0, 5) : '';
+                                                        $scheduleEnd = !empty($schedule['end_time']) ? substr($schedule['end_time'], 0, 5) : '';
+
+                                                        if (empty($scheduleStart) || empty($scheduleEnd)) continue;
+
+                                                        // Check if schedule overlaps with this time slot
+                                                        $scheduleOverlaps = (
+                                                            $scheduleStart < $endTime &&
+                                                            $scheduleEnd > $startTime
+                                                        );
+
+                                                        if ($scheduleOverlaps) {
+                                                            $schedulesForSlot[] = $schedule;
+                                                        }
+                                                    }
+                                                }
+                                                ?>
+
+                                                <?php if (!empty($schedulesForSlot)): ?>
+                                                    <div class="space-y-1">
+                                                        <?php foreach ($schedulesForSlot as $schedule):
+                                                            $colorClass = getScheduleColorClass($schedule);
+                                                        ?>
+                                                            <div class="schedule-card <?php echo $colorClass; ?> p-2 rounded-lg border-l-4 schedule-item"
+                                                                data-year-level="<?php echo !empty($schedule['year_level']) ? htmlspecialchars($schedule['year_level']) : ''; ?>"
+                                                                data-section-name="<?php echo !empty($schedule['section_name']) ? htmlspecialchars($schedule['section_name']) : ''; ?>"
+                                                                data-room-name="<?php echo !empty($schedule['room_name']) ? htmlspecialchars($schedule['room_name']) : 'Online'; ?>">
+
+                                                                <div class="font-semibold text-xs truncate mb-1">
+                                                                    <?php echo !empty($schedule['course_code']) ? htmlspecialchars($schedule['course_code']) : ''; ?>
+                                                                </div>
+                                                                <div class="text-xs opacity-90 truncate mb-1">
+                                                                    <?php echo !empty($schedule['section_name']) ? htmlspecialchars($schedule['section_name']) : ''; ?>
+                                                                </div>
+                                                                <div class="text-xs opacity-75 truncate">
+                                                                    <?php echo !empty($schedule['faculty_name']) ? htmlspecialchars($schedule['faculty_name']) : ''; ?>
+                                                                </div>
+                                                                <div class="text-xs opacity-75 truncate">
+                                                                    <?php echo !empty($schedule['room_name']) ? htmlspecialchars($schedule['room_name']) : 'Online'; ?>
+                                                                </div>
+                                                                <div class="text-xs font-medium mt-1">
+                                                                    <?php
+                                                                    $displayStart = !empty($schedule['start_time']) ? date('g:i A', strtotime($schedule['start_time'])) : '';
+                                                                    $displayEnd = !empty($schedule['end_time']) ? date('g:i A', strtotime($schedule['end_time'])) : '';
+                                                                    echo $displayStart . ' - ' . $displayEnd;
+                                                                    ?>
+                                                                </div>
+                                                            </div>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <!-- Fallback if no time slots -->
+                                <div class="p-8 text-center text-gray-500 col-span-7">
+                                    <i class="fas fa-calendar-times text-3xl mb-2"></i>
+                                    <p>No schedule data available for viewing</p>
                                 </div>
-                            <?php endforeach; ?>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
