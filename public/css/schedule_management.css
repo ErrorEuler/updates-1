@@ -819,12 +819,14 @@ input[type="time"] {
 .schedule-cell {
   min-height: 80px;
   position: relative;
+  transition: all 0.3s ease;
 }
 
 .schedule-card {
   transition: all 0.2s ease-in-out;
   cursor: move !important;
   opacity: 1 !important;
+  border-left-width: 4px !important;
 }
 
 .schedule-card.dragging {
@@ -834,8 +836,8 @@ input[type="time"] {
 
 .schedule-card:hover {
   opacity: 1 !important;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 10;
 }
 
@@ -915,4 +917,33 @@ input[type="time"] {
 
 .schedule-card:hover button.no-print {
   opacity: 1 !important;
+}
+
+
+
+/* 🎯 ACCURATE SCHEDULE GRID STYLES */
+.schedule-row {
+  transition: all 0.3s ease;
+}
+
+/* Ensure proper height scaling */
+#schedule-grid {
+  min-height: 600px;
+}
+
+/* Time column styling */
+.bg-gray-50.sticky {
+  z-index: 20 !important;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .schedule-card {
+    font-size: 10px !important;
+    padding: 4px !important;
+  }
+
+  .schedule-card .text-xs {
+    font-size: 9px !important;
+  }
 }

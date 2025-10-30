@@ -334,7 +334,7 @@ function getScheduleColorClass($schedule)
                 </div>
 
                 <!-- GRID VIEW -->
-                <!-- Enhanced Schedule Grid -->
+                <!-- Accurate Schedule Grid -->
                 <div class="overflow-x-auto bg-white rounded-lg shadow-sm border border-gray-200">
                     <div class="min-w-full">
                         <!-- Header with days -->
@@ -369,33 +369,80 @@ function getScheduleColorClass($schedule)
                             </div>
                         </div>
 
-                        <!-- Dynamic Time slots grid -->
+                        <!-- Accurate Time slots grid -->
                         <div id="schedule-grid" class="divide-y divide-gray-200">
                             <?php
-                            // Create flexible time slots that match ALL schedule times
+                            // 🎯 ACCURATE TIME SLOT GENERATION BASED ON ACTUAL SCHEDULES
                             $allTimes = [];
 
-                            // Add all schedule start and end times
+                            // Add ALL unique start and end times from schedules
                             foreach ($schedules as $schedule) {
                                 if ($schedule['start_time']) {
-                                    $allTimes[] = substr($schedule['start_time'], 0, 5);
+                                    $startTime = substr($schedule['start_time'], 0, 5);
+                                    if (!in_array($startTime, $allTimes)) {
+                                        $allTimes[] = $startTime;
+                                    }
                                 }
                                 if ($schedule['end_time']) {
-                                    $allTimes[] = substr($schedule['end_time'], 0, 5);
+                                    $endTime = substr($schedule['end_time'], 0, 5);
+                                    if (!in_array($endTime, $allTimes)) {
+                                        $allTimes[] = $endTime;
+                                    }
                                 }
                             }
 
-                            // Add default time slots to ensure grid coverage
-                            for ($hour = 7; $hour <= 20; $hour++) {
-                                $allTimes[] = sprintf('%02d:00', $hour);
-                                $allTimes[] = sprintf('%02d:30', $hour);
+                            // If no schedules, use default time slots
+                            if (empty($allTimes)) {
+                                for ($hour = 7; $hour <= 20; $hour++) {
+                                    $allTimes[] = sprintf('%02d:00', $hour);
+                                    $allTimes[] = sprintf('%02d:30', $hour);
+                                }
+                            } else {
+                                // Add strategic time points to ensure good coverage
+                                $baseTimes = [
+                                    '07:00',
+                                    '07:30',
+                                    '08:00',
+                                    '08:30',
+                                    '09:00',
+                                    '09:30',
+                                    '10:00',
+                                    '10:30',
+                                    '11:00',
+                                    '11:30',
+                                    '12:00',
+                                    '12:30',
+                                    '13:00',
+                                    '13:30',
+                                    '14:00',
+                                    '14:30',
+                                    '15:00',
+                                    '15:30',
+                                    '16:00',
+                                    '16:30',
+                                    '17:00',
+                                    '17:30',
+                                    '18:00',
+                                    '18:30',
+                                    '19:00',
+                                    '19:30',
+                                    '20:00'
+                                ];
+
+                                foreach ($baseTimes as $baseTime) {
+                                    if (!in_array($baseTime, $allTimes)) {
+                                        $allTimes[] = $baseTime;
+                                    }
+                                }
                             }
 
-                            // Remove duplicates and sort
+                            // Remove duplicates and sort properly
                             $allTimes = array_unique($allTimes);
-                            sort($allTimes);
+                            usort($allTimes, function ($a, $b) {
+                                return strtotime($a) - strtotime($b);
+                            });
 
-                            // Create time slots
+                            // Create clean time slots
                             $timeSlots = [];
                             for ($i = 0; $i < count($allTimes) - 1; $i++) {
                                 $timeSlots[] = [
@@ -407,12 +454,31 @@ function getScheduleColorClass($schedule)
                             $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                             ?>
 
-                            <?php foreach ($timeSlots as $slot): ?>
-                                <div class="grid grid-cols-7 min-h-[80px] hover:bg-gray-50 transition-colors duration-200 schedule-row">
+                            <?php foreach ($timeSlots as $slot):
+                                // Calculate row height based on duration
+                                $start = strtotime($slot['start']);
+                                $end = strtotime($slot['end']);
+                                $duration = ($end - $start) / 60; // duration in minutes
+                                $rowHeight = max(60, ($duration / 30) * 40); // Base height + proportional scaling
+                            ?>
+                                <div class="grid grid-cols-7 hover:bg-gray-50 transition-colors duration-200 schedule-row"
+                                    style="min-height: <?php echo $rowHeight; ?>px;">
+
                                     <!-- Time Column -->
-                                    <div class="px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 sticky left-0 z-10 flex items-start">
-                                        <span class="text-sm hidden sm:block"><?php echo date('g:i A', strtotime($slot['start'])) . ' - ' . date('g:i A', strtotime($slot['end'])); ?></span>
-                                        <span class="text-xs sm:hidden"><?php echo $slot['start'] . '-' . $slot['end']; ?></span>
+                                    <div class="px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 sticky left-0 z-10 flex items-center"
+                                        style="min-height: <?php echo $rowHeight; ?>px;">
+                                        <div>
+                                            <span class="text-sm hidden sm:block">
+                                                <?php echo date('g:i A', strtotime($slot['start'])) . ' - ' . date('g:i A', strtotime($slot['end'])); ?>
+                                            </span>
+                                            <span class="text-xs sm:hidden">
+                                                <?php echo $slot['start'] . '-' . $slot['end']; ?>
+                                            </span>
+                                            <br>
+                                            <span class="text-xs text-gray-500 hidden sm:inline">
+                                                (<?php echo $duration; ?> min)
+                                            </span>
+                                        </div>
                                     </div>
 
                                     <!-- Day Columns -->
@@ -420,7 +486,8 @@ function getScheduleColorClass($schedule)
                                         <div class="px-1 py-1 border-r border-gray-200 last:border-r-0 relative drop-zone schedule-cell"
                                             data-day="<?php echo $day; ?>"
                                             data-start-time="<?php echo $slot['start']; ?>"
-                                            data-end-time="<?php echo $slot['end']; ?>">
+                                            data-end-time="<?php echo $slot['end']; ?>"
+                                            style="min-height: <?php echo $rowHeight; ?>px;">
 
                                             <?php
                                             $schedulesInThisSlot = [];
@@ -433,13 +500,10 @@ function getScheduleColorClass($schedule)
 
                                                 if (!$scheduleStart || !$scheduleEnd) continue;
 
-                                                // Check if schedule overlaps with this time slot
-                                                $scheduleOverlaps = (
-                                                    $scheduleStart < $slot['end'] &&
-                                                    $scheduleEnd > $slot['start']
-                                                );
+                                                // 🎯 ACCURATE SCHEDULE MATCHING - Check if schedule starts EXACTLY in this slot
+                                                $scheduleStartsHere = ($scheduleStart === $slot['start']);
 
-                                                if ($scheduleOverlaps) {
+                                                if ($scheduleStartsHere) {
                                                     $schedulesInThisSlot[] = $schedule;
                                                 }
                                             }
@@ -448,12 +512,19 @@ function getScheduleColorClass($schedule)
                                             <?php if (empty($schedulesInThisSlot)): ?>
                                                 <!-- Empty slot - show add button -->
                                                 <button onclick="openAddModalForSlot('<?php echo $day; ?>', '<?php echo $slot['start']; ?>', '<?php echo $slot['end']; ?>')"
-                                                    class="w-full h-full text-gray-400 hover:text-gray-600 hover:bg-yellow-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-yellow-400 transition-all duration-200 no-print flex items-center justify-center p-2 min-h-[80px]">
+                                                    class="w-full h-full text-gray-400 hover:text-gray-600 hover:bg-yellow-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-yellow-400 transition-all duration-200 no-print flex items-center justify-center"
+                                                    style="min-height: <?php echo $rowHeight - 16; ?>px;">
                                                     <i class="fas fa-plus text-sm"></i>
                                                 </button>
                                             <?php else: ?>
                                                 <div class="space-y-1 h-full">
                                                     <?php foreach ($schedulesInThisSlot as $schedule):
+                                                        // Calculate schedule duration for proper height
+                                                        $scheduleStart = strtotime($schedule['start_time']);
+                                                        $scheduleEnd = strtotime($schedule['end_time']);
+                                                        $scheduleDuration = ($scheduleEnd - $scheduleStart) / 60;
+                                                        $scheduleHeight = max(60, ($scheduleDuration / 30) * 40);
+
                                                         // Get consistent color for this schedule
                                                         $colorClass = getScheduleColorClass($schedule);
                                                     ?>
@@ -465,26 +536,27 @@ function getScheduleColorClass($schedule)
                                                             data-room-name="<?php echo htmlspecialchars($schedule['room_name'] ?? 'Online'); ?>"
                                                             data-start-time="<?php echo $schedule['start_time']; ?>"
                                                             data-end-time="<?php echo $schedule['end_time']; ?>"
-                                                            data-full-access="true">
+                                                            data-full-access="true"
+                                                            style="min-height: <?php echo $scheduleHeight - 16; ?>px;">
 
                                                             <div class="flex justify-between items-start mb-1">
                                                                 <div class="font-semibold truncate flex-1">
                                                                     <?php echo htmlspecialchars($schedule['course_code']); ?>
                                                                 </div>
-                                                                <!-- 🚀 ALWAYS show action buttons - NO CONDITIONS -->
+                                                                <!-- Action buttons -->
                                                                 <div class="flex space-x-1 flex-shrink-0 ml-1">
                                                                     <button onclick="event.stopPropagation(); editScheduleFromAnyCell('<?php echo $schedule['schedule_id']; ?>')"
                                                                         class="text-yellow-600 hover:text-yellow-700 no-print">
                                                                         <i class="fas fa-edit text-xs"></i>
                                                                     </button>
                                                                     <button onclick="event.stopPropagation(); openDeleteSingleModal(
-                                    '<?php echo $schedule['schedule_id']; ?>', 
-                                    '<?php echo htmlspecialchars($schedule['course_code']); ?>', 
-                                    '<?php echo htmlspecialchars($schedule['section_name']); ?>', 
-                                    '<?php echo htmlspecialchars($schedule['day_of_week']); ?>', 
-                                    '<?php echo date('g:i A', strtotime($schedule['start_time'])); ?>', 
-                                    '<?php echo date('g:i A', strtotime($schedule['end_time'])); ?>'
-                                )" class="text-red-600 hover:text-red-700 no-print">
+                                                        '<?php echo $schedule['schedule_id']; ?>', 
+                                                        '<?php echo htmlspecialchars($schedule['course_code']); ?>', 
+                                                        '<?php echo htmlspecialchars($schedule['section_name']); ?>', 
+                                                        '<?php echo htmlspecialchars($schedule['day_of_week']); ?>', 
+                                                        '<?php echo date('g:i A', strtotime($schedule['start_time'])); ?>', 
+                                                        '<?php echo date('g:i A', strtotime($schedule['end_time'])); ?>'
+                                                    )" class="text-red-600 hover:text-red-700 no-print">
                                                                         <i class="fas fa-trash text-xs"></i>
                                                                     </button>
                                                                 </div>
@@ -504,6 +576,10 @@ function getScheduleColorClass($schedule)
 
                                                             <div class="font-medium mt-1 text-xs">
                                                                 <?php echo date('g:i A', strtotime($schedule['start_time'])) . ' - ' . date('g:i A', strtotime($schedule['end_time'])); ?>
+                                                            </div>
+
+                                                            <div class="text-xs text-gray-500 mt-1">
+                                                                Duration: <?php echo $scheduleDuration; ?> minutes
                                                             </div>
                                                         </div>
                                                     <?php endforeach; ?>
@@ -2505,117 +2581,13 @@ function getScheduleColorClass($schedule)
             }
 
             // Safe function to update schedule display without escapeHtml issues
-            // Enhanced function to update schedule display without overlapping issues
-            // Enhanced function to update schedule display with better time slot handling
+            // 🎯 Replace the safeUpdateScheduleDisplay function
             function safeUpdateScheduleDisplay(schedules) {
                 window.scheduleData = schedules;
+                console.log("📊 Updating display with accurate time slots for", schedules.length, "schedules");
 
-                console.log("📊 Updating display with", schedules.length, "schedules");
-
-                // Update manual grid (Grid View)
-                const manualGrid = document.getElementById("schedule-grid");
-                if (manualGrid) {
-                    manualGrid.innerHTML = "";
-
-                    // Use the same time slots as PHP to ensure consistency
-                    const timeSlots = [
-                        ['07:30', '08:30'],
-                        ['08:30', '10:00'],
-                        ['10:00', '11:00'],
-                        ['11:00', '12:30'],
-                        ['12:30', '13:30'],
-                        ['13:00', '14:30'],
-                        ['14:30', '15:30'],
-                        ['15:30', '17:00'],
-                        ['17:00', '18:00']
-                    ];
-
-                    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-                    timeSlots.forEach(time => {
-                        const row = document.createElement('div');
-                        row.className = `grid grid-cols-7 min-h-[100px] hover:bg-gray-50 transition-colors duration-200`;
-
-                        // Time column
-                        const timeCell = document.createElement('div');
-                        timeCell.className = 'px-3 py-3 text-sm font-medium text-gray-600 border-r border-gray-200 bg-gray-50 sticky left-0 z-10 flex items-start';
-                        timeCell.innerHTML = `
-                <span class="text-sm hidden sm:block">${formatTime(time[0])} - ${formatTime(time[1])}</span>
-                <span class="text-xs sm:hidden">${time[0].substring(0, 5)}-${time[1].substring(0, 5)}</span>
-            `;
-                        row.appendChild(timeCell);
-
-                        // Day columns
-                        days.forEach(day => {
-                            const cell = document.createElement('div');
-                            cell.className = 'px-1 py-1 border-r border-gray-200 last:border-r-0 relative drop-zone';
-                            cell.dataset.day = day;
-                            cell.dataset.startTime = time[0];
-                            cell.dataset.endTime = time[1];
-
-                            // Find schedules for this exact time slot AND overlapping schedules
-                            const schedulesForSlot = schedules.filter(schedule => {
-                                if (schedule.day_of_week !== day) return false;
-
-                                const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
-                                const scheduleEnd = schedule.end_time ? schedule.end_time.substring(0, 5) : '';
-
-                                if (!scheduleStart || !scheduleEnd) return false;
-
-                                // Check if schedule starts in this exact time slot OR overlaps with it
-                                const slotStart = time[0];
-                                const slotEnd = time[1];
-
-                                const scheduleStartsInSlot = (scheduleStart === slotStart);
-                                const scheduleOverlapsSlot = (
-                                    scheduleStart < slotEnd &&
-                                    scheduleEnd > slotStart
-                                );
-
-                                return scheduleStartsInSlot || scheduleOverlapsSlot;
-                            });
-
-                            if (schedulesForSlot.length > 0) {
-                                const schedulesContainer = document.createElement('div');
-                                schedulesContainer.className = 'space-y-1';
-
-                                schedulesForSlot.forEach(schedule => {
-                                    const scheduleStart = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
-                                    const isStartCell = (scheduleStart === time[0]);
-
-                                    const scheduleCard = createSafeScheduleCard(schedule, isStartCell);
-                                    schedulesContainer.appendChild(scheduleCard);
-                                });
-
-                                cell.appendChild(schedulesContainer);
-                            } else {
-                                // Add button for empty slot
-                                const addButton = document.createElement('button');
-                                addButton.innerHTML = '<i class="fas fa-plus text-sm"></i>';
-                                addButton.className = 'w-full h-full text-gray-400 hover:text-gray-600 hover:bg-yellow-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-yellow-400 transition-all duration-200 no-print flex items-center justify-center p-2 min-h-[100px]';
-                                addButton.onclick = () => openAddModalForSlot(day, time[0], time[1]);
-                                cell.appendChild(addButton);
-                            }
-
-                            row.appendChild(cell);
-                        });
-
-                        manualGrid.appendChild(row);
-                    });
-
-                    // We just need to ensure all cards are accessible after render
-                    setTimeout(() => {
-                        enableFullAccessToAllScheduleCards();
-                    }, 500);
-
-                }
-
-                // Update list view
-                updateListView(schedules);
-                // Update view schedule tab
-                updateViewScheduleTab(schedules);
+                updateScheduleGridWithAccurateSlots(schedules);
             }
-
             // Updated function to create schedule card with continuation support
             function createSafeScheduleCard(schedule, isStartCell = true) {
                 const card = document.createElement('div');
