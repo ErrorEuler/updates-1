@@ -713,6 +713,7 @@ $pendingFacultyCount = $deanController->getPendingFacultyCount();
         <div class="content-container">
             <!-- Breadcrumb -->
             <?php
+            include __DIR__ . '/../partials/role_switcher.php';
             $segments = explode('/', trim($currentUri, '/'));
             if (count($segments) > 1):
             ?>

@@ -8,8 +8,17 @@ class AuthService
     private $db;
     private $emailService;
 
-    public function __construct($db)
+    public function __construct($db = null)
     {
+
+        // If no database connection is provided, create one
+        if ($db === null) {
+            $database = new Database();
+            $this->db = $database->connect();
+        } else {
+            $this->db = $db;
+        }
+
         $this->db = $db;
         $this->userModel = new UserModel();
         $this->emailService = new EmailService();
@@ -121,6 +130,33 @@ class AuthService
             ]);
             $userId = $this->db->lastInsertId();
             error_log("register: Inserted user_id=$userId, employee_id={$data['employee_id']}, role_id={$data['role_id']}, is_active=0");
+
+            $this->db->commit(); // Commit the main registration first
+
+            // 🆕 ADD DEBUG LOGGING
+            error_log("Registration form data received for user_id=$userId: " . json_encode([
+                'has_dual_role' => $data['has_dual_role'] ?? 'not set',
+                'secondary_role_id' => $data['secondary_role_id'] ?? 'not set',
+                'role_id' => $data['role_id'] ?? 'not set'
+            ]));
+
+            // 🆕 FIX: Make sure we're passing the dual role data
+            $secondary_role_id = null;
+            if (isset($data['has_dual_role']) && $data['has_dual_role'] == '1' && !empty($data['secondary_role_id'])) {
+                $secondary_role_id = $data['secondary_role_id'];
+                error_log("register: Dual role data found - secondary_role_id: $secondary_role_id");
+            } else {
+                error_log("register: No dual role data found");
+            }
+
+            // 🆕 Call setupUserRoles with the correct data
+            $this->setupUserRoles($userId, $data['role_id'], $secondary_role_id);
+
+            if ($secondary_role_id) {
+                error_log("register: Dual role setup completed for user_id=$userId - primary: {$data['role_id']}, secondary: $secondary_role_id");
+            } else {
+                error_log("register: Single role setup completed for user_id=$userId - role: {$data['role_id']}");
+            }
 
             if ($data['role_id'] == 3) {
                 // For Director, insert into department_instructors
@@ -324,5 +360,155 @@ class AuthService
             session_start();
         }
         return isset($_SESSION['user_id']);
+    }
+
+    /**
+     * Setup user roles including dual role configuration
+     * @param int $user_id
+     * @param int $primary_role
+     * @param int|null $secondary_role
+     * @return bool
+     */
+    public function setupUserRoles($user_id, $primary_role, $secondary_role = null)
+    {
+        try {
+            $userModel = new UserModel();
+
+            error_log("setupUserRoles: Starting for user_id=$user_id, primary_role=$primary_role, secondary_role=" . ($secondary_role ?? 'null'));
+
+            if ($secondary_role) {
+                // Validate that only Dean/Chair combinations are allowed
+                $valid_combinations = [
+                    [4, 5], // Dean + Chair
+                    [5, 4]  // Chair + Dean
+                ];
+
+                $is_valid = false;
+                foreach ($valid_combinations as $combo) {
+                    if (($primary_role == $combo[0] && $secondary_role == $combo[1]) ||
+                        ($primary_role == $combo[1] && $secondary_role == $combo[0])
+                    ) {
+                        $is_valid = true;
+                        break;
+                    }
+                }
+
+                if (!$is_valid) {
+                    throw new Exception("Invalid role combination. Only Dean/Program Chair combinations are allowed.");
+                }
+
+                // Setup role switching for dual-role users
+                error_log("setupUserRoles: Setting up dual role for user_id=$user_id");
+                $success = $userModel->setupRoleSwitching($user_id, $primary_role, $secondary_role);
+                if (!$success) {
+                    throw new Exception("Failed to setup role switching.");
+                }
+                error_log("setupUserRoles: Dual role setup completed for user_id=$user_id");
+            } else {
+                error_log("setupUserRoles: Single role setup for user_id=$user_id");
+            }
+
+            // Set initial active role
+            $result = $userModel->switchActiveRole($user_id, $primary_role);
+            error_log("setupUserRoles: Initial role set to $primary_role for user_id=$user_id, result=" . ($result ? 'success' : 'failed'));
+
+            return $result;
+        } catch (Exception $e) {
+            error_log("Error setting up user roles: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Switch user's active role
+     * @param int $user_id
+     * @param int $new_role_id
+     * @return bool
+     */
+    public function switchUserRole($user_id, $new_role_id)
+    {
+        try {
+            $userModel = new UserModel();
+
+            // Verify user has access to this role
+            $available_roles = $userModel->getUserAvailableRoles($user_id);
+            $has_access = false;
+
+            foreach ($available_roles as $role) {
+                if ($role['role_id'] == $new_role_id) {
+                    $has_access = true;
+                    break;
+                }
+            }
+
+            if ($has_access) {
+                $success = $userModel->switchActiveRole($user_id, $new_role_id);
+                if ($success) {
+                    // Update session
+                    $this->updateSessionAfterRoleSwitch($user_id, $new_role_id);
+                    return true;
+                }
+            }
+
+            return false;
+        } catch (Exception $e) {
+            error_log("Error switching user role: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Update session after role switch
+     * @param int $user_id
+     * @param int $new_role_id
+     * @return void
+     */
+    private function updateSessionAfterRoleSwitch($user_id, $new_role_id)
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        $userModel = new UserModel();
+        $user = $userModel->getUserById($user_id);
+
+        if ($user) {
+            $_SESSION['role_id'] = $new_role_id;
+            $_SESSION['role_name'] = $this->getRoleName($new_role_id);
+
+            // Log the role switch
+            $this->logAuthAction($user_id, 'role_switch', $_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_USER_AGENT'], "Switched to role: {$_SESSION['role_name']}");
+        }
+    }
+
+    /**
+     * Get role name by ID
+     * @param int $role_id
+     * @return string
+     */
+    public function getRoleName($role_id)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT role_name FROM roles WHERE role_id = :role_id");
+            $stmt->bindParam(':role_id', $role_id, PDO::PARAM_INT);
+            $stmt->execute();
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return $result['role_name'] ?? 'Unknown';
+        } catch (PDOException $e) {
+            error_log("Error getting role name: " . $e->getMessage());
+            return 'Unknown';
+        }
+    }
+
+    /**
+     * Get user roles information
+     * @param int $user_id
+     * @return array
+     */
+    public function getUserRoles($user_id)
+    {
+        $userModel = new UserModel();
+        return $userModel->getUserWithMultipleRoles($user_id);
     }
 }

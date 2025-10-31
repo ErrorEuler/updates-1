@@ -910,4 +910,180 @@ class UserModel
             return [];
         }
     }
+
+    /**
+     * Get user with multiple roles information
+     * @param int $user_id
+     * @return array
+     */
+    public function getUserWithMultipleRoles($user_id)
+    {
+        try {
+            $query = "SELECT u.*, r.role_name as primary_role, 
+                             sr.role_name as secondary_role,
+                             urs.secondary_role_id, urs.is_active as switch_active
+                      FROM users u 
+                      LEFT JOIN user_role_switching urs ON u.user_id = urs.user_id AND urs.is_active = 1
+                      LEFT JOIN roles r ON u.role_id = r.role_id
+                      LEFT JOIN roles sr ON urs.secondary_role_id = sr.role_id
+                      WHERE u.user_id = :user_id";
+
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->execute();
+
+            return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        } catch (PDOException $e) {
+            error_log("Error fetching user with multiple roles: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Setup role switching for dual-role users
+     * @param int $user_id
+     * @param int $primary_role_id
+     * @param int $secondary_role_id
+     * @return bool
+     */
+    public function setupRoleSwitching($user_id, $primary_role_id, $secondary_role_id)
+    {
+        try {
+            error_log("setupRoleSwitching: Starting for user_id=$user_id, primary=$primary_role_id, secondary=$secondary_role_id");
+
+            // Deactivate any existing role switching for this user
+            $sql = "UPDATE user_role_switching SET is_active = 0 WHERE user_id = :user_id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $updateResult = $stmt->execute();
+            error_log("setupRoleSwitching: Deactivated existing records, result=" . ($updateResult ? 'success' : 'failed'));
+
+            // Insert new role switching setup
+            $sql = "INSERT INTO user_role_switching (user_id, primary_role_id, secondary_role_id, is_active) 
+                VALUES (:user_id, :primary_role_id, :secondary_role_id, 1)";
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->bindParam(':primary_role_id', $primary_role_id, PDO::PARAM_INT);
+            $stmt->bindParam(':secondary_role_id', $secondary_role_id, PDO::PARAM_INT);
+
+            $insertResult = $stmt->execute();
+            $insertedId = $this->db->lastInsertId();
+
+            error_log("setupRoleSwitching: Inserted record with id=$insertedId, result=" . ($insertResult ? 'success' : 'failed'));
+
+            return $insertResult;
+        } catch (PDOException $e) {
+            error_log("Error setting up role switching: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Switch active role for a user
+     * @param int $user_id
+     * @param int $new_active_role_id
+     * @return bool
+     */
+    public function switchActiveRole($user_id, $new_active_role_id)
+    {
+        try {
+            $sql = "UPDATE users SET role_id = :role_id WHERE user_id = :user_id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':role_id', $new_active_role_id, PDO::PARAM_INT);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+
+            return $stmt->execute();
+        } catch (PDOException $e) {
+            error_log("Error switching active role: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get user's available roles
+     * @param int $user_id
+     * @return array
+     */
+    public function getUserAvailableRoles($user_id)
+    {
+        try {
+            $sql = "SELECT r.role_id, r.role_name 
+                    FROM user_role_switching urs 
+                    JOIN roles r ON (r.role_id = urs.primary_role_id OR r.role_id = urs.secondary_role_id)
+                    WHERE urs.user_id = :user_id AND urs.is_active = 1";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->execute();
+
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Error fetching user available roles: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Check if user has dual role setup
+     * @param int $user_id
+     * @return bool
+     */
+    public function hasDualRole($user_id)
+    {
+        try {
+            $sql = "SELECT COUNT(*) FROM user_role_switching 
+                    WHERE user_id = :user_id AND is_active = 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->execute();
+
+            return $stmt->fetchColumn() > 0;
+        } catch (PDOException $e) {
+            error_log("Error checking dual role: " . $e->getMessage());
+            return false;
+        }
+    }
+
+
+    /**
+     * Manual insert for role switching (bypass transaction issues)
+     * @param int $user_id
+     * @param int $primary_role_id
+     * @param int $secondary_role_id
+     * @return bool
+     */
+    public function manualInsertRoleSwitching($user_id, $primary_role_id, $secondary_role_id)
+    {
+        try {
+            // First check if record already exists
+            $check_sql = "SELECT COUNT(*) FROM user_role_switching WHERE user_id = :user_id";
+            $stmt = $this->db->prepare($check_sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->execute();
+
+            if ($stmt->fetchColumn() > 0) {
+                // Update existing record
+                $sql = "UPDATE user_role_switching SET 
+                    primary_role_id = :primary_role_id, 
+                    secondary_role_id = :secondary_role_id,
+                    is_active = 1,
+                    updated_at = NOW()
+                    WHERE user_id = :user_id";
+            } else {
+                // Insert new record
+                $sql = "INSERT INTO user_role_switching (user_id, primary_role_id, secondary_role_id, is_active) 
+                    VALUES (:user_id, :primary_role_id, :secondary_role_id, 1)";
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+            $stmt->bindParam(':primary_role_id', $primary_role_id, PDO::PARAM_INT);
+            $stmt->bindParam(':secondary_role_id', $secondary_role_id, PDO::PARAM_INT);
+
+            return $stmt->execute();
+        } catch (PDOException $e) {
+            error_log("Error in manual role switching insert: " . $e->getMessage());
+            return false;
+        }
+    }
 }

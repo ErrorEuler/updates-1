@@ -65,8 +65,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'is_active' => 0,
             'academic_rank' => trim($_POST['academic_rank'] ?? ''),
             'employment_type' => trim($_POST['employment_type'] ?? ''),
-            'classification' => trim($_POST['classification'] ?? '')
+            'classification' => trim($_POST['classification'] ?? ''),
+            // 🆕 ADD THESE FOR DUAL ROLE:
+            'has_dual_role' => $_POST['has_dual_role'] ?? 0,
+            'secondary_role_id' => $_POST['secondary_role_id'] ?? null
         ];
+
+        // 🆕 ADD THIS: Include dual role data if selected
+        if (isset($_POST['has_dual_role']) && $_POST['has_dual_role'] == '1' && !empty($_POST['secondary_role_id'])) {
+            $userData['has_dual_role'] = 1;
+            $userData['secondary_role_id'] = (int)$_POST['secondary_role_id'];
+            error_log("Registration: Dual role selected - primary: {$userData['role_id']}, secondary: {$userData['secondary_role_id']}");
+        }
 
         if ($authService->register($userData)) {
             $success = "Registration successful! You can now login.";
@@ -420,6 +430,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </div>
                         </div>
 
+                        <!-- Add this after the Role selection in register.php -->
+                        <!-- Dual Role Option -->
+                        <div class="input-group" id="dual-role-section" style="display: none;">
+                            <label class="block text-sm font-medium text-gray-700 mb-3">
+                                <div class="flex items-center">
+                                    <svg class="h-5 w-5 text-yellow-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a2 2 0 012-2h2a2 2 0 012 2v5m-4-6h.01" />
+                                    </svg>
+                                    Dual Role Position
+                                </div>
+                            </label>
+
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                <p class="text-sm text-yellow-800 mb-3">
+                                    <strong>Note:</strong> This account will have both Dean and Program Chair roles.
+                                    You can switch between them anytime in settings.
+                                </p>
+
+                                <div class="flex items-center">
+                                    <input
+                                        type="checkbox"
+                                        id="has_dual_role"
+                                        name="has_dual_role"
+                                        value="1"
+                                        class="h-4 w-4 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded">
+                                    <label for="has_dual_role" class="ml-2 block text-sm text-gray-700 font-medium">
+                                        This user holds both Dean and Program Chair positions
+                                    </label>
+                                </div>
+
+                                <!-- Secondary Role Selection (auto-filled based on primary role) -->
+                                <div id="secondary-role-section" class="mt-3" style="display: none;">
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Secondary Role</label>
+                                    <div class="bg-white p-3 rounded border">
+                                        <p class="text-sm text-gray-600" id="secondary-role-display">
+                                            <!-- Will be populated by JavaScript -->
+                                        </p>
+                                        <input type="hidden" id="secondary_role_id" name="secondary_role_id">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- College -->
                         <div class="input-group">
                             <label for="college_id" class="block text-sm font-medium text-gray-700 mb-2">College <span class="text-red-500">*</span></label>
@@ -670,6 +723,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Auto-focus first input on load (desktop only)
             if (window.innerWidth >= 768) {
                 $('#first_name').focus();
+            }
+        });
+
+        // Dual role functionality
+        function setupDualRoleSelection() {
+            const roleSelect = $('#role_id');
+            const dualRoleSection = $('#dual-role-section');
+            const hasDualRoleCheckbox = $('#has_dual_role');
+            const secondaryRoleSection = $('#secondary-role-section');
+            const secondaryRoleDisplay = $('#secondary-role-display');
+            const secondaryRoleInput = $('#secondary_role_id');
+
+            // Show/hide dual role section based on selected role
+            roleSelect.on('change', function() {
+                const selectedRole = $(this).val();
+
+                // Only show dual role option for Dean or Chair roles
+                if (selectedRole == '4' || selectedRole == '5') { // Dean or Chair
+                    dualRoleSection.show();
+
+                    // Auto-set the secondary role
+                    let secondaryRoleId, secondaryRoleName;
+                    if (selectedRole == '4') { // Dean -> Chair as secondary
+                        secondaryRoleId = '5';
+                        secondaryRoleName = 'Program Chair';
+                    } else { // Chair -> Dean as secondary  
+                        secondaryRoleId = '4';
+                        secondaryRoleName = 'Dean';
+                    }
+
+                    secondaryRoleDisplay.text(secondaryRoleName);
+                    secondaryRoleInput.val(secondaryRoleId);
+                } else {
+                    dualRoleSection.hide();
+                    hasDualRoleCheckbox.prop('checked', false);
+                    secondaryRoleSection.hide();
+                }
+            });
+
+            // Show/hide secondary role details when checkbox is checked
+            hasDualRoleCheckbox.on('change', function() {
+                if ($(this).is(':checked')) {
+                    secondaryRoleSection.show();
+                } else {
+                    secondaryRoleSection.hide();
+                }
+            });
+
+            // Trigger change on page load if role is pre-selected
+            if (roleSelect.val() == '4' || roleSelect.val() == '5') {
+                roleSelect.trigger('change');
+
+                // If dual role was previously selected, check the checkbox
+                <?php if (isset($_POST['has_dual_role']) && $_POST['has_dual_role'] == '1'): ?>
+                    hasDualRoleCheckbox.prop('checked', true).trigger('change');
+                <?php endif; ?>
+            }
+        }
+
+        // Call this in your document ready
+        $(document).ready(function() {
+            setupDualRoleSelection();
+            // ... your existing code ...
+        });
+
+        // Add this to your existing JavaScript in register.php
+        function validateDualRole() {
+            const hasDualRole = $('#has_dual_role').is(':checked');
+            const secondaryRoleId = $('#secondary_role_id').val();
+
+            if (hasDualRole && (!secondaryRoleId || secondaryRoleId === '')) {
+                alert('Please select a secondary role for dual role position.');
+                return false;
+            }
+            return true;
+        }
+
+        // Add form submission validation
+        $('form').on('submit', function(e) {
+            if (!validateDualRole()) {
+                e.preventDefault();
+                return false;
             }
         });
     </script>

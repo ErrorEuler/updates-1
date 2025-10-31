@@ -1,4 +1,4 @@
-=
+
 ```
 acss-1-main
 ├─ .env
@@ -54,10 +54,10 @@ acss-1-main
 │        ├─ user_59_1755335026.png
 │        ├─ user_59_1755335130.png
 │        └─ user_59_1755335861.png
-├─ README.md
 ├─ src
 │  ├─ api
-│  │  └─ load_data.php
+│  │  ├─ load_data.php
+│  │  └─ switch-role.php
 │  ├─ config
 │  │  └─ Database.php
 │  ├─ controllers
@@ -97,7 +97,6 @@ acss-1-main
 │     ├─ auth
 │     │  ├─ forgot_password.php
 │     │  ├─ login.php
-│     │  ├─ register-step2.php
 │     │  ├─ register.php
 │     │  └─ reset_password.php
 │     ├─ chair
@@ -146,8 +145,9 @@ acss-1-main
 │     ├─ partials
 │     │  ├─ chair
 │     │  │  └─ sidebar.php
-│     │  └─ css
-│     │     └─ custome.css
+│     │  ├─ css
+│     │  │  └─ custome.css
+│     │  └─ role_switcher.php
 │     └─ public
 │        └─ home.php
 ├─ tailwind.config.js

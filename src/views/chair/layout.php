@@ -737,6 +737,7 @@ $modal_content = $modal_content ?? '';
         <div class="max-w-7xl mx-auto">
             <!-- Breadcrumb -->
             <?php
+            include __DIR__ . '/../partials/role_switcher.php';
             $segments = explode('/', trim($currentUri, '/'));
             if (count($segments) > 1):
             ?>
